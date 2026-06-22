@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+    <PropertyGroup>
+        <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Engine runtime deps: Microsoft.Extensions abstractions + OpenFeature only. No EF, no Endatix. -->
+        <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.0" />
+        <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.0" />
+        <PackageVersion Include="Microsoft.Extensions.Options" Version="10.0.0" />
+        <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.0" />
+        <PackageVersion Include="OpenFeature" Version="2.13.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Test-only -->
+        <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+        <PackageVersion Include="xunit" Version="2.9.2" />
+        <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
+        <PackageVersion Include="NSubstitute" Version="5.3.0" />
+        <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+        <PackageVersion Include="OpenFeature.Hosting" Version="2.11.1" />
+        <PackageVersion Include="OpenFeature.DependencyInjection" Version="2.3.1" />
+    </ItemGroup>
+</Project>

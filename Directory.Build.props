@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+    <PropertyGroup>
+        <Version>0.1.0-alpha</Version>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>14</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <Company>Endatix, Ltd.</Company>
+        <Authors>Endatix team and Community contributors</Authors>
+        <Product>Endatix Platform</Product>
+        <Copyright>Copyright © Endatix, Ltd. $([System.DateTime]::Today.ToString('yyyy'))</Copyright>
+        <PackageProjectUrl>https://endatix.com</PackageProjectUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/endatix/endatix.outbox.engine</RepositoryUrl>
+        <PackageTags>endatix,outbox,relay,integration-events,openfeature</PackageTags>
+    </PropertyGroup>
+</Project>

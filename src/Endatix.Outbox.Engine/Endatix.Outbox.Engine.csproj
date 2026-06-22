@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>Endatix.Outbox.Engine</PackageId>
+    <Title>Endatix - Outbox Relay Engine</Title>
+    <Description>Endatix-agnostic transactional-outbox relay engine: the claim-publish-mark loop, its contracts (IOutboxMessage, IOutboxClaimStore, IIntegrationEventPublisher), and an OpenFeature-gated on/off switch. Consumed both in-process (the Endatix API) and by a standalone relay worker.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Endatix.Outbox.Engine.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="OpenFeature" />
+  </ItemGroup>
+
+</Project>
