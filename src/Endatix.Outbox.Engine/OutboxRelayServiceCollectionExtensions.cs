@@ -1,3 +1,4 @@
+using System.Data.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -26,6 +27,31 @@ public static class OutboxRelayServiceCollectionExtensions
 
         services.TryAddScoped<IOutboxRelayGate, OpenFeatureOutboxRelayGate>();
         services.AddHostedService<OutboxRelayBackgroundService>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Registers the default ADO.NET <see cref="SqlOutboxClaimStore"/> over a host-supplied connection. This
+    /// is the engine's shared database layer — the same implementation backs the in-process API relay and the
+    /// standalone worker. The host supplies the <paramref name="dialect"/>, a <paramref name="connectionFactory"/>
+    /// (returning an unopened provider connection, e.g. <c>new NpgsqlConnection(connString)</c>), and optionally
+    /// the <paramref name="tableName"/> (default <see cref="OutboxSchema.DefaultTable"/>; both hosts must agree).
+    /// </summary>
+    public static IServiceCollection AddSqlOutboxClaimStore(
+        this IServiceCollection services,
+        OutboxSqlDialect dialect,
+        Func<IServiceProvider, DbConnection> connectionFactory,
+        string? tableName = null)
+    {
+        services.Configure<OutboxSqlOptions>(options =>
+        {
+            options.Dialect = dialect;
+            options.TableName = tableName ?? OutboxSchema.DefaultTable;
+        });
+        services.TryAddSingleton<IOutboxConnectionFactory>(
+            sp => new DelegateOutboxConnectionFactory(() => connectionFactory(sp)));
+        services.TryAddSingleton<IOutboxClaimStore, SqlOutboxClaimStore>();
 
         return services;
     }
