@@ -17,7 +17,8 @@
         <Copyright>Copyright © Endatix, Ltd. $([System.DateTime]::Today.ToString('yyyy'))</Copyright>
         <PackageProjectUrl>https://endatix.com</PackageProjectUrl>
         <PackageLicenseExpression>MIT</PackageLicenseExpression>
-        <RepositoryUrl>https://github.com/endatix/endatix.outbox.engine</RepositoryUrl>
+        <RepositoryUrl>https://github.com/endatix/endatix-relay</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
         <PackageTags>endatix,outbox,relay,integration-events,openfeature</PackageTags>
     </PropertyGroup>
 </Project>

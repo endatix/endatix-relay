@@ -1,0 +1,60 @@
+name: Build, Test & Release
+
+# Trunk-based development:
+#   • build + test on every PR (and PR update) targeting main
+#   • build + test + release on push to main (merge)
+# Release steps are gated on `github.ref_name == 'main'` so they never run for PRs.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # semantic-release: create tags + GitHub releases
+  issues: write # semantic-release: comment on released issues
+  pull-requests: write # semantic-release: comment on released PRs
+
+jobs:
+  ci:
+    name: Build, Test & Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔍 Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # semantic-release needs full history + tags
+
+      - name: 📦 Setup .NET
+        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: "10.x"
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      - name: 🧪 Run tests
+        run: dotnet test --no-build -c Release --verbosity normal
+
+      # ----- Release (main only) -----
+      - name: 📦 Setup Node
+        if: github.ref_name == 'main'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "lts/*"
+
+      - name: 🚀 Semantic Release
+        if: github.ref_name == 'main'
+        uses: cycjimmy/semantic-release-action@ba330626c4750c19d8299de843f05c7aa5574f62 # v5.0.2
+        with:
+          semantic_version: 24
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@8
+            @semantic-release/exec@6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}

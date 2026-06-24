@@ -41,3 +41,30 @@ also owns the table's existence (migration) and EF mapping for the capture/write
 ```bash
 dotnet test
 ```
+
+## CI / Release (trunk-based)
+
+A single workflow, [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+- **Every PR to `main` (and each update):** restore → build → test.
+- **On merge to `main`:** the same build + test, then a **release** step (gated by
+  `if: github.ref_name == 'main'`) driven by [semantic-release](https://github.com/semantic-release/semantic-release).
+
+**Versioning is automatic** from [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
+semantic-release analyzes the commits merged to `main`, computes the next SemVer, tags it (`vX.Y.Z`), creates
+a GitHub Release with generated notes, then ([`.releaserc.yaml`](.releaserc.yaml) via `@semantic-release/exec`)
+runs `dotnet pack -p:Version=<computed>` and `dotnet nuget push` to nuget.org.
+
+- `fix:` → patch · `feat:` → minor · `feat!:` / `BREAKING CHANGE:` → major · `chore/docs/refactor/...` → no release.
+- Use Conventional Commit messages (or squash-merge with a Conventional PR title).
+
+**One-time repo setup:**
+- Add repository secret **`NUGET_API_KEY`** (nuget.org key scoped to push `Endatix.Outbox.Engine`).
+- `GITHUB_TOKEN` is built-in; the workflow grants it `contents/issues/pull-requests: write` for tags/releases.
+- Allow the workflow to create releases/tags on `main` (branch-protection “allow GitHub Actions”).
+
+> No file is committed back to `main` (no `@semantic-release/git`), so this works cleanly with protected
+> `main`. To also commit a `CHANGELOG.md`, add `@semantic-release/changelog` + `@semantic-release/git` (needs
+> a token allowed to push to protected `main`).
+
+endatix consumes the published package via a normal `PackageReference` (Infrastructure only).
