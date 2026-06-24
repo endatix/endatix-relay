@@ -1,0 +1,19 @@
+## .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+
+## Rider / VS
+.idea/
+.vs/
+*.suo
+
+## macOS
+.DS_Store
+
+## Test results
+[Tt]est[Rr]esults/
+*.trx
