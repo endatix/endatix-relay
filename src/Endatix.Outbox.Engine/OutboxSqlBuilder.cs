@@ -20,6 +20,11 @@ internal sealed class OutboxSqlBuilder
 
     public OutboxSqlBuilder(OutboxSqlDialect dialect, string tableName)
     {
+        if (!Enum.IsDefined(dialect))
+        {
+            throw new ArgumentOutOfRangeException(nameof(dialect), dialect, "Unsupported SQL dialect.");
+        }
+
         _dialect = dialect;
         _table = QuoteQualified(tableName);
         ClaimSql = BuildClaimSql();
@@ -119,5 +124,19 @@ internal sealed class OutboxSqlBuilder
         _ => $"\"{identifier}\"",
     };
 
-    private string QuoteQualified(string name) => string.Join(".", name.Split('.').Select(Q));
+    private string QuoteQualified(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("Table name must be non-empty.", nameof(name));
+        }
+
+        var segments = name.Split('.');
+        if (segments.Any(string.IsNullOrWhiteSpace))
+        {
+            throw new ArgumentException($"Table name '{name}' has an empty segment.", nameof(name));
+        }
+
+        return string.Join(".", segments.Select(Q));
+    }
 }

@@ -44,6 +44,14 @@ public class OutboxRelayBackgroundService : BackgroundService
     {
         _logger.LogInformation("Outbox relay started (instance {InstanceId}).", _instanceId);
 
+        // Fail fast on DI misconfiguration: resolve the required scoped services once at startup so a missing
+        // registration crashes the host instead of being swallowed by the per-tick retry catch below (which
+        // would leave the host "healthy" while the relay can never process a single message).
+        await using (var startupScope = _scopeFactory.CreateAsyncScope())
+        {
+            EnsureRequiredServices(startupScope.ServiceProvider);
+        }
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var processed = 0;
@@ -99,6 +107,17 @@ public class OutboxRelayBackgroundService : BackgroundService
         }
 
         return await ProcessBatchAsync(services, cancellationToken);
+    }
+
+    /// <summary>
+    /// Resolves every scoped service the relay needs, so a missing/misconfigured registration throws at
+    /// startup rather than per tick. Called once before the loop; exposed for unit testing.
+    /// </summary>
+    internal static void EnsureRequiredServices(IServiceProvider services)
+    {
+        services.GetRequiredService<IOutboxRelayGate>();
+        services.GetRequiredService<IOutboxClaimStore>();
+        services.GetRequiredService<IIntegrationEventPublisher>();
     }
 
     private async Task<int> ProcessBatchAsync(IServiceProvider services, CancellationToken cancellationToken)

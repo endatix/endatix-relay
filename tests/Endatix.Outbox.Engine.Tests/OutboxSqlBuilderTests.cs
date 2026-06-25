@@ -119,6 +119,24 @@ public class OutboxSqlBuilderTests
         Assert.Contains("[app].[OutboxMessages]", ss);
     }
 
+    [Fact]
+    public void Ctor_rejects_an_undefined_dialect()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => new OutboxSqlBuilder((OutboxSqlDialect)999, "OutboxMessages"));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("app.")]
+    [InlineData(".OutboxMessages")]
+    [InlineData("app..OutboxMessages")]
+    public void Ctor_rejects_blank_or_empty_table_segments(string table)
+    {
+        Assert.Throws<ArgumentException>(() => new OutboxSqlBuilder(OutboxSqlDialect.PostgreSql, table));
+    }
+
     private static string Col(OutboxSqlDialect dialect, string name) =>
         dialect == OutboxSqlDialect.SqlServer ? $"[{name}]" : $"\"{name}\"";
 }

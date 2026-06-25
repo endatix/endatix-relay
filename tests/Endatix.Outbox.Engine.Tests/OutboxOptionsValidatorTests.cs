@@ -30,7 +30,7 @@ public class OutboxOptionsValidatorTests
     [MemberData(nameof(NonPositiveKnobs))]
     public void Nonpositive_tuning_value_fails(string knob, Action<OutboxOptions> mutate)
     {
-        Assert.False(Validate(mutate));
+        Assert.False(Validate(mutate), $"Expected validation to fail for non-positive {knob}.");
     }
 
     [Fact]

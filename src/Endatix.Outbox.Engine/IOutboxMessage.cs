@@ -2,8 +2,9 @@ namespace Endatix.Outbox.Engine;
 
 /// <summary>
 /// The read contract the relay loop and publishers operate on. Kept deliberately minimal and
-/// storage-agnostic so the engine never references a concrete persistence model — the host's outbox
-/// row type (e.g. Endatix's <c>OutboxMessage</c> entity) implements this.
+/// storage-agnostic. The engine's own <see cref="SqlOutboxClaimStore"/> materializes the lightweight
+/// engine-owned <c>OutboxMessageRow</c>; a host that supplies its own claim store may instead implement this
+/// on its persistence entity (e.g. Endatix's <c>OutboxMessage</c>).
 /// </summary>
 public interface IOutboxMessage
 {

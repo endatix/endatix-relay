@@ -66,7 +66,9 @@ runs `dotnet pack -p:Version=<computed>` and `dotnet nuget push` to nuget.org.
   - **`NUGET_API_KEY`** — nuget.org key scoped to push `Endatix.Outbox.Engine`.
   - **`ENDATIX_PROJECT_AUTOMATIONS_APP_ID`** / **`ENDATIX_PROJECT_AUTOMATIONS_PRIVATE_KEY`** — the release-bot
     GitHub App (installed on this repo with **contents + issues + pull-requests: write**).
-- Allow the workflow to create releases/tags on `main` (branch-protection “allow GitHub Actions”).
+- Ensure the **release-bot GitHub App** (used by `.github/workflows/ci.yml`) is installed on this repo and
+  allowed to create tags/releases — configure any branch-protection ruleset/bypass for the **App**, not the
+  `github-actions[bot]` actor (releases are minted with the App token, not `GITHUB_TOKEN`).
 
 > No file is committed back to `main` (no `@semantic-release/git`), so this works cleanly with protected
 > `main`. To also commit a `CHANGELOG.md`, add `@semantic-release/changelog` + `@semantic-release/git` (needs

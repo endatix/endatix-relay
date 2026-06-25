@@ -143,6 +143,31 @@ public class OutboxRelayBackgroundServiceTests
         await _claimStore.DidNotReceive().MarkFailedAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public void EnsureRequiredServices_throws_when_a_required_service_is_missing()
+    {
+        using var services = new ServiceCollection()
+            .AddSingleton(_gate)
+            .AddSingleton(_claimStore)
+            // IIntegrationEventPublisher deliberately not registered
+            .BuildServiceProvider();
+
+        Assert.Throws<InvalidOperationException>(
+            () => OutboxRelayBackgroundService.EnsureRequiredServices(services));
+    }
+
+    [Fact]
+    public void EnsureRequiredServices_passes_when_all_present()
+    {
+        using var services = new ServiceCollection()
+            .AddSingleton(_gate)
+            .AddSingleton(_claimStore)
+            .AddSingleton(_publisher)
+            .BuildServiceProvider();
+
+        OutboxRelayBackgroundService.EnsureRequiredServices(services); // no throw
+    }
+
     [Theory]
     [InlineData(0, 5)]      // base * 2^0 = 5
     [InlineData(1, 10)]     // 5 * 2^1 = 10

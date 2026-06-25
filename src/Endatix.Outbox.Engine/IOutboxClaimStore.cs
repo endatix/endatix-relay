@@ -1,9 +1,11 @@
 namespace Endatix.Outbox.Engine;
 
 /// <summary>
-/// Persistence seam for the relay. Implementations live in the host (they own the EF model and the
-/// provider-specific claim SQL). The claim uses a DB-arbitrated skip-locked update + a lease so any
-/// number of relay instances can run without double-claiming a row.
+/// Persistence seam for the relay. The engine ships a default ADO.NET implementation
+/// (<see cref="SqlOutboxClaimStore"/>, registered via <c>AddSqlOutboxClaimStore</c>) that works for both the
+/// in-process API host and the standalone worker; a host may still supply its own implementation. The claim
+/// uses a DB-arbitrated skip-locked update + a lease so any number of relay instances can run without
+/// double-claiming a row.
 /// </summary>
 public interface IOutboxClaimStore
 {
