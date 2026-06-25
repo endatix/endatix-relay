@@ -85,9 +85,12 @@ internal sealed class OutboxSqlBuilder
         $"{Q(OutboxSchema.Status)} = {(int)OutboxStatus.Failed}, {Q(OutboxSchema.ProcessedAt)} = @now, " +
         $"{ReleaseLease()} {PendingGuard()}";
 
-    // Only pending rows are mutable — replaces the entity-level EnsurePending guard with a DB-enforced one.
+    // Only the current lease owner may mutate a pending row — replaces the entity-level EnsurePending guard
+    // with a DB-enforced one that also checks lease ownership, so an expired-lease instance can't clobber a
+    // row another instance has re-claimed.
     private string PendingGuard() =>
-        $"WHERE {Q(OutboxSchema.Id)} = @id AND {Q(OutboxSchema.Status)} = {(int)OutboxStatus.Pending};";
+        $"WHERE {Q(OutboxSchema.Id)} = @id AND {Q(OutboxSchema.Status)} = {(int)OutboxStatus.Pending} " +
+        $"AND {Q(OutboxSchema.LockedBy)} = @lockedBy;";
 
     private string ReleaseLease() =>
         $"{Q(OutboxSchema.LockedUntil)} = NULL, {Q(OutboxSchema.LockedBy)} = NULL";

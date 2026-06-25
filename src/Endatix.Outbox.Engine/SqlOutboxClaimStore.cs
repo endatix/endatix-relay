@@ -1,4 +1,5 @@
 using System.Data.Common;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Endatix.Outbox.Engine;
@@ -15,11 +16,16 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
 {
     private readonly IOutboxConnectionFactory _connectionFactory;
     private readonly OutboxSqlBuilder _sql;
+    private readonly ILogger<SqlOutboxClaimStore> _logger;
 
     /// <summary>Creates the claim store for the configured dialect/table.</summary>
-    public SqlOutboxClaimStore(IOutboxConnectionFactory connectionFactory, IOptions<OutboxSqlOptions> options)
+    public SqlOutboxClaimStore(
+        IOutboxConnectionFactory connectionFactory,
+        IOptions<OutboxSqlOptions> options,
+        ILogger<SqlOutboxClaimStore> logger)
     {
         _connectionFactory = connectionFactory;
+        _logger = logger;
         var opts = options.Value;
         _sql = new OutboxSqlBuilder(opts.Dialect, opts.TableName);
     }
@@ -49,21 +55,30 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     }
 
     /// <inheritdoc />
-    public Task MarkSentAsync(IOutboxMessage message, CancellationToken cancellationToken) =>
-        ExecuteAsync(_sql.MarkSentSql, cancellationToken,
-            ("@id", message.Id), ("@now", DateTime.UtcNow));
+    public async Task MarkSentAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken)
+    {
+        var affected = await ExecuteAsync(_sql.MarkSentSql, cancellationToken,
+            ("@id", message.Id), ("@lockedBy", instanceId), ("@now", DateTime.UtcNow));
+        WarnIfLeaseLost(affected, message, instanceId, "MarkSent");
+    }
 
     /// <inheritdoc />
-    public Task RescheduleAsync(IOutboxMessage message, DateTime nextAttemptAt, CancellationToken cancellationToken) =>
-        ExecuteAsync(_sql.RescheduleSql, cancellationToken,
-            ("@id", message.Id), ("@nextAttemptAt", nextAttemptAt));
+    public async Task RescheduleAsync(IOutboxMessage message, DateTime nextAttemptAt, string instanceId, CancellationToken cancellationToken)
+    {
+        var affected = await ExecuteAsync(_sql.RescheduleSql, cancellationToken,
+            ("@id", message.Id), ("@lockedBy", instanceId), ("@nextAttemptAt", nextAttemptAt));
+        WarnIfLeaseLost(affected, message, instanceId, "Reschedule");
+    }
 
     /// <inheritdoc />
-    public Task MarkFailedAsync(IOutboxMessage message, CancellationToken cancellationToken) =>
-        ExecuteAsync(_sql.MarkFailedSql, cancellationToken,
-            ("@id", message.Id), ("@now", DateTime.UtcNow));
+    public async Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken)
+    {
+        var affected = await ExecuteAsync(_sql.MarkFailedSql, cancellationToken,
+            ("@id", message.Id), ("@lockedBy", instanceId), ("@now", DateTime.UtcNow));
+        WarnIfLeaseLost(affected, message, instanceId, "MarkFailed");
+    }
 
-    private async Task ExecuteAsync(string sql, CancellationToken cancellationToken, params (string Name, object Value)[] parameters)
+    private async Task<int> ExecuteAsync(string sql, CancellationToken cancellationToken, params (string Name, object Value)[] parameters)
     {
         await using var connection = _connectionFactory.Create();
         await connection.OpenAsync(cancellationToken);
@@ -74,7 +89,19 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
             AddParameter(command, name, value);
         }
 
-        await command.ExecuteNonQueryAsync(cancellationToken);
+        return await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    // A 0-row update means the lease was lost (row re-claimed by another instance, or already terminal).
+    // At-least-once still holds — surface it for observability instead of failing silently.
+    private void WarnIfLeaseLost(int affected, IOutboxMessage message, string instanceId, string operation)
+    {
+        if (affected == 0)
+        {
+            _logger.LogWarning(
+                "Outbox {Operation} for message {MessageId} affected 0 rows — lease no longer held by {InstanceId} (re-claimed or already terminal).",
+                operation, message.Id, instanceId);
+        }
     }
 
     private static void AddParameter(DbCommand command, string name, object value)

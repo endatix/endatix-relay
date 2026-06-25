@@ -49,8 +49,8 @@ public class OutboxRelayBackgroundServiceTests
         Assert.Equal(2, processed);
         await _publisher.Received(1).PublishAsync(m1, Arg.Any<CancellationToken>());
         await _publisher.Received(1).PublishAsync(m2, Arg.Any<CancellationToken>());
-        await _claimStore.Received(1).MarkSentAsync(m1, Arg.Any<CancellationToken>());
-        await _claimStore.Received(1).MarkSentAsync(m2, Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkSentAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkSentAsync(m2, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -97,9 +97,9 @@ public class OutboxRelayBackgroundServiceTests
         await relay.ProcessOnceAsync(services, CancellationToken.None);
 
         await _claimStore.Received(1).RescheduleAsync(
-            message, Arg.Is<DateTime>(d => d > DateTime.UtcNow), Arg.Any<CancellationToken>());
-        await _claimStore.DidNotReceive().MarkFailedAsync(message, Arg.Any<CancellationToken>());
-        await _claimStore.DidNotReceive().MarkSentAsync(message, Arg.Any<CancellationToken>());
+            message, Arg.Is<DateTime>(d => d > DateTime.UtcNow), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -114,9 +114,9 @@ public class OutboxRelayBackgroundServiceTests
 
         await relay.ProcessOnceAsync(services, CancellationToken.None);
 
-        await _claimStore.Received(1).MarkFailedAsync(message, Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().RescheduleAsync(
-            message, Arg.Any<DateTime>(), Arg.Any<CancellationToken>());
+            message, Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]

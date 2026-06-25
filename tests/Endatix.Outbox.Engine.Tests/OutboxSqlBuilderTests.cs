@@ -78,6 +78,7 @@ public class OutboxSqlBuilderTests
         Assert.Contains($"{Col(dialect, OutboxSchema.LockedUntil)} = NULL", sql);
         Assert.Contains($"{Col(dialect, OutboxSchema.LockedBy)} = NULL", sql);
         Assert.Contains($"WHERE {Col(dialect, OutboxSchema.Id)} = @id AND {Col(dialect, OutboxSchema.Status)} = 0", sql);
+        Assert.Contains($"AND {Col(dialect, OutboxSchema.LockedBy)} = @lockedBy", sql); // lease-ownership guard
     }
 
     [Theory]
@@ -91,6 +92,7 @@ public class OutboxSqlBuilderTests
         Assert.Contains($"{attempts} = {attempts} + 1", sql);
         Assert.Contains($"{Col(dialect, OutboxSchema.NextAttemptAt)} = @nextAttemptAt", sql);
         Assert.Contains($"{Col(dialect, OutboxSchema.Status)} = 0", sql);       // pending guard
+        Assert.Contains($"AND {Col(dialect, OutboxSchema.LockedBy)} = @lockedBy", sql); // lease-ownership guard
     }
 
     [Theory]
@@ -102,6 +104,7 @@ public class OutboxSqlBuilderTests
 
         Assert.Contains($"{Col(dialect, OutboxSchema.Status)} = 2", sql);       // Failed
         Assert.Contains($"WHERE {Col(dialect, OutboxSchema.Id)} = @id AND {Col(dialect, OutboxSchema.Status)} = 0", sql);
+        Assert.Contains($"AND {Col(dialect, OutboxSchema.LockedBy)} = @lockedBy", sql); // lease-ownership guard
     }
 
     [Fact]

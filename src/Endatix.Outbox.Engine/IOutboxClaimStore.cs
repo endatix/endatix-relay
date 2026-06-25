@@ -14,15 +14,23 @@ public interface IOutboxClaimStore
     Task<IReadOnlyList<IOutboxMessage>> ClaimBatchAsync(
         string instanceId, TimeSpan lease, int batchSize, CancellationToken cancellationToken);
 
-    /// <summary>Marks a successfully-published row as sent and releases its lease.</summary>
-    Task MarkSentAsync(IOutboxMessage message, CancellationToken cancellationToken);
+    /// <summary>
+    /// Marks a successfully-published row as sent and releases its lease. The update is guarded by lease
+    /// ownership (<paramref name="instanceId"/> must still hold the lease); if the lease was lost to another
+    /// instance it is a no-op (implementations should surface the 0-row case).
+    /// </summary>
+    Task MarkSentAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Returns a failed row to pending for a later retry: increments attempts, sets the next-attempt
-    /// gate to <paramref name="nextAttemptAt"/>, and releases the lease.
+    /// gate to <paramref name="nextAttemptAt"/>, and releases the lease. Guarded by lease ownership
+    /// (<paramref name="instanceId"/>).
     /// </summary>
-    Task RescheduleAsync(IOutboxMessage message, DateTime nextAttemptAt, CancellationToken cancellationToken);
+    Task RescheduleAsync(IOutboxMessage message, DateTime nextAttemptAt, string instanceId, CancellationToken cancellationToken);
 
-    /// <summary>Marks a row as terminally failed (max attempts exhausted) and releases its lease.</summary>
-    Task MarkFailedAsync(IOutboxMessage message, CancellationToken cancellationToken);
+    /// <summary>
+    /// Marks a row as terminally failed (max attempts exhausted) and releases its lease. Guarded by lease
+    /// ownership (<paramref name="instanceId"/>).
+    /// </summary>
+    Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken);
 }

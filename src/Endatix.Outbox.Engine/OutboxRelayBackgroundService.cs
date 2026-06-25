@@ -107,7 +107,7 @@ public class OutboxRelayBackgroundService : BackgroundService
             try
             {
                 await publisher.PublishAsync(message, cancellationToken);
-                await claimStore.MarkSentAsync(message, cancellationToken);
+                await claimStore.MarkSentAsync(message, _instanceId, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -130,7 +130,7 @@ public class OutboxRelayBackgroundService : BackgroundService
             _logger.LogError(
                 ex, "Outbox message {MessageId} ({EventType}) failed permanently after {Attempts} attempts.",
                 message.Id, message.EventType, message.Attempts + 1);
-            await claimStore.MarkFailedAsync(message, cancellationToken);
+            await claimStore.MarkFailedAsync(message, _instanceId, cancellationToken);
         }
         else
         {
@@ -138,7 +138,7 @@ public class OutboxRelayBackgroundService : BackgroundService
             _logger.LogWarning(
                 ex, "Outbox message {MessageId} ({EventType}) publish failed (attempt {Attempt}); retry at {NextAttemptAt:o}.",
                 message.Id, message.EventType, message.Attempts + 1, nextAttemptAt);
-            await claimStore.RescheduleAsync(message, nextAttemptAt, cancellationToken);
+            await claimStore.RescheduleAsync(message, nextAttemptAt, _instanceId, cancellationToken);
         }
     }
 
