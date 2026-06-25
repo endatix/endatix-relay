@@ -4,5 +4,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Endatix.Outbox.Engine.Tests/Endatix.Outbox.Engine.Tests.csproj" />
+    <Project Path="tests/Endatix.Outbox.Engine.IntegrationTests/Endatix.Outbox.Engine.IntegrationTests.csproj" />
   </Folder>
 </Solution>

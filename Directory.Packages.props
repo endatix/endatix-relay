@@ -20,5 +20,12 @@
         <PackageVersion Include="xunit.runner.visualstudio" Version="2.8.2" />
         <PackageVersion Include="NSubstitute" Version="5.3.0" />
         <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+        <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Integration-test-only (real-DB suite via Testcontainers) -->
+        <PackageVersion Include="Testcontainers.PostgreSql" Version="4.12.0" />
+        <PackageVersion Include="Npgsql" Version="10.0.3" />
     </ItemGroup>
 </Project>
