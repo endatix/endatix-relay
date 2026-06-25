@@ -15,12 +15,19 @@ permissions:
   contents: write # semantic-release: create tags + GitHub releases
   issues: write # semantic-release: comment on released issues
   pull-requests: write # semantic-release: comment on released PRs
+  id-token: write
 
 jobs:
   ci:
     name: Build, Test & Release
     runs-on: ubuntu-latest
     steps:
+      - uses: Infisical/secrets-action@v1.0.7
+        with:
+          method: "oidc"
+          env-slug: "dev"
+          project-slug: "github-actions-for-endatix"
+          identity-id: "403af1ed-7046-480f-a100-c4482b8a89ac"      
       - name: 🔍 Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
