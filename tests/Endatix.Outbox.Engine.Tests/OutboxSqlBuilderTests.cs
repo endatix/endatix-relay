@@ -13,6 +13,7 @@ public class OutboxSqlBuilderTests
         Assert.Contains("LIMIT @batchSize", sql);
         Assert.Contains("RETURNING", sql);
         Assert.Contains("\"OutboxMessages\"", sql);
+        Assert.Contains("\"Payload\"::text", sql); // json read as text, provider-agnostic
         Assert.DoesNotContain("[OutboxMessages]", sql);
         Assert.DoesNotContain("READPAST", sql);
     }
@@ -28,6 +29,7 @@ public class OutboxSqlBuilderTests
         // The hint must be on the FROM-clause table, not on the UPDATE-clause alias.
         Assert.Contains("FROM [OutboxMessages] o WITH (READPAST, UPDLOCK, ROWLOCK)", sql);
         Assert.DoesNotContain("o WITH (READPAST, UPDLOCK, ROWLOCK) SET", sql);
+        Assert.Contains("CAST(inserted.[Payload] AS nvarchar(max))", sql); // json read as text, provider-agnostic
     }
 
     [Theory]

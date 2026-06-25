@@ -43,7 +43,6 @@ internal sealed class OutboxSqlBuilder
     private string BuildClaimSql()
     {
         var pending = (int)OutboxStatus.Pending;
-        var projection = string.Join(", ", ProjectionColumns.Select(Q));
         var claimable =
             $"SELECT {Q(OutboxSchema.Id)} FROM {_table} " +
             $"WHERE {Q(OutboxSchema.Status)} = {pending} " +
@@ -56,20 +55,39 @@ internal sealed class OutboxSqlBuilder
                 $"WITH claimable AS ({claimable} ORDER BY {Q(OutboxSchema.Id)} LIMIT @batchSize FOR UPDATE SKIP LOCKED) " +
                 $"UPDATE {_table} o SET {Q(OutboxSchema.LockedBy)} = @lockedBy, {Q(OutboxSchema.LockedUntil)} = @lockedUntil " +
                 $"FROM claimable c WHERE o.{Q(OutboxSchema.Id)} = c.{Q(OutboxSchema.Id)} " +
-                $"RETURNING {string.Join(", ", ProjectionColumns.Select(col => "o." + Q(col)))};";
+                $"RETURNING {Projection("o")};";
         }
 
         // SQL Server: READPAST is the SKIP LOCKED equivalent; OUTPUT returns the claimed rows.
         // The table hint MUST sit on the table source in the FROM clause — not on the UPDATE-clause
         // alias (which the FROM defines), or it is rejected/ignored and skip-locked is lost.
-        var output = string.Join(", ", ProjectionColumns.Select(col => "inserted." + Q(col)));
         return
             $"UPDATE TOP (@batchSize) o " +
             $"SET {Q(OutboxSchema.LockedBy)} = @lockedBy, {Q(OutboxSchema.LockedUntil)} = @lockedUntil " +
-            $"OUTPUT {output} FROM {_table} o WITH (READPAST, UPDLOCK, ROWLOCK) " +
+            $"OUTPUT {Projection("inserted")} FROM {_table} o WITH (READPAST, UPDLOCK, ROWLOCK) " +
             $"WHERE o.{Q(OutboxSchema.Status)} = {pending} " +
             $"AND (o.{Q(OutboxSchema.LockedUntil)} IS NULL OR o.{Q(OutboxSchema.LockedUntil)} <= @now) " +
             $"AND (o.{Q(OutboxSchema.NextAttemptAt)} IS NULL OR o.{Q(OutboxSchema.NextAttemptAt)} <= @now);";
+    }
+
+    // The claim projection, qualified by the row source ("o" for RETURNING, "inserted" for OUTPUT), in the
+    // exact order SqlOutboxClaimStore reads by ordinal. The JSON Payload column is projected AS TEXT so the
+    // reader can GetString it regardless of how the provider surfaces json/jsonb (SQL Server's native `json`
+    // type, or a host that enabled Npgsql dynamic-JSON mapping).
+    private string Projection(string source) =>
+        string.Join(", ", ProjectionColumns.Select(col => ProjectColumn(source, col)));
+
+    private string ProjectColumn(string source, string column)
+    {
+        var qualified = $"{source}.{Q(column)}";
+        if (column != OutboxSchema.Payload)
+        {
+            return qualified;
+        }
+
+        return _dialect == OutboxSqlDialect.SqlServer
+            ? $"CAST({qualified} AS nvarchar(max))"
+            : $"{qualified}::text";
     }
 
     private string BuildMarkSentSql() =>
