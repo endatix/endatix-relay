@@ -107,7 +107,6 @@ public class OutboxRelayBackgroundService : BackgroundService
             try
             {
                 await publisher.PublishAsync(message, cancellationToken);
-                await claimStore.MarkSentAsync(message, _instanceId, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -116,6 +115,25 @@ public class OutboxRelayBackgroundService : BackgroundService
             catch (Exception ex)
             {
                 await HandlePublishFailureAsync(claimStore, message, ex, cancellationToken);
+                continue;
+            }
+
+            // Publish succeeded. A MarkSent failure must NOT be routed to HandlePublishFailureAsync —
+            // that would re-publish a delivered message or, at MaxAttempts, wrongly dead-letter it. Log it
+            // and move on; the lease expires and the row is reclaimed/redelivered (still at-least-once).
+            try
+            {
+                await claimStore.MarkSentAsync(message, _instanceId, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex, "Outbox message {MessageId} ({EventType}) published but MarkSent failed; it will be redelivered after lease expiry.",
+                    message.Id, message.EventType);
             }
         }
 

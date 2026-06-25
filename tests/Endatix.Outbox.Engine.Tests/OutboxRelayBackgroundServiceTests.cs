@@ -119,6 +119,25 @@ public class OutboxRelayBackgroundServiceTests
             message, Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task MarkSent_failure_is_not_treated_as_a_publish_failure()
+    {
+        GateReturns(true);
+        var message = new FakeOutboxMessage(1, Attempts: 0);
+        ClaimReturns(message);
+        _claimStore.MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("mark boom")));
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 1 }); // would dead-letter if misrouted
+
+        var processed = await relay.ProcessOnceAsync(services, CancellationToken.None);
+
+        Assert.Equal(1, processed); // publish succeeded; mark failure logged, batch not aborted
+        await _publisher.Received(1).PublishAsync(message, Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().RescheduleAsync(message, Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
     [Theory]
     [InlineData(0, 5)]      // base * 2^0 = 5
     [InlineData(1, 10)]     // 5 * 2^1 = 10

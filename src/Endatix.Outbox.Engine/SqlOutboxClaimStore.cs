@@ -108,9 +108,20 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     {
         var parameter = command.CreateParameter();
         parameter.ParameterName = name;
-        parameter.Value = value;
+        parameter.Value = value is DateTime dt ? ToUtc(dt) : value;
         command.Parameters.Add(parameter);
     }
+
+    // All outbox timestamps are persisted as UTC (PostgreSQL `timestamptz`, SQL Server `datetime2`).
+    // Normalize every DateTime parameter to Kind=Utc at the boundary so a Local/Unspecified value from a
+    // caller can't (a) throw under Npgsql's strict timestamptz mode or (b) be compared in a different frame
+    // than the always-UTC `@now`. Unspecified is assumed to already be UTC (the engine's own values are).
+    internal static DateTime ToUtc(DateTime value) => value.Kind switch
+    {
+        DateTimeKind.Utc => value,
+        DateTimeKind.Local => value.ToUniversalTime(),
+        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
+    };
 
     private static OutboxMessageRow ReadRow(DbDataReader reader) => new()
     {

@@ -9,6 +9,13 @@ namespace Endatix.Outbox.Engine;
 /// (see <see cref="OutboxSqlOptions.TableName"/>) because hosts may prefix/qualify it; it defaults to
 /// <see cref="DefaultTable"/>.
 /// </summary>
+/// <remarks>
+/// Timestamp columns (<see cref="OccurredAt"/>, <see cref="LockedUntil"/>, <see cref="NextAttemptAt"/>,
+/// <see cref="ProcessedAt"/>) are persisted as <b>UTC</b> — PostgreSQL <c>timestamp with time zone</c>
+/// (timestamptz), SQL Server <c>datetime2</c>. The claim store binds every DateTime parameter as
+/// <c>Kind=Utc</c> to match (Npgsql's strict mode requires UTC for timestamptz); hosts must not map these
+/// columns to <c>timestamp without time zone</c>.
+/// </remarks>
 public static class OutboxSchema
 {
     /// <summary>Default unqualified table name. Hosts may override (prefix/schema) via <see cref="OutboxSqlOptions.TableName"/>.</summary>
