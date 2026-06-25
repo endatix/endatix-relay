@@ -1,0 +1,97 @@
+name: Build, Test & Release
+
+# Trunk-based. ONE job, ONE checkout, AND least privilege:
+#   • PR to main → build + test           (job token is read-only)
+#   • push main  → build + test, then semantic-release packs → nuget push → GitHub release
+#
+# The job's own GITHUB_TOKEN stays read-only. Release writes (tags/releases/PR comments) use a
+# short-lived GitHub App installation token minted ONLY on main (see "Mint release-bot token").
+# So PRs never carry repo-write scopes, with no second checkout — solving the
+# least-privilege-vs-double-checkout trade-off.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Serialize runs per ref so two quick merges to main can't run overlapping releases
+# (which would race on tag creation / nuget push). Never cancel an in-flight release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read # release writes come from the App token below, not this token
+  # Single-job design (one checkout, by choice over a split release job that would re-checkout the repo).
+  # id-token grants OIDC federation (NOT repo write) and is only EXERCISED on push — the Infisical step is
+  # push-gated and PRs never reach it. Accepting the broad-permission warning rather than double-checkout.
+  id-token: write # zizmor: ignore[excessive-permissions]
+
+jobs:
+  pipeline:
+    name: Build, Test & Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🔍 Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # semantic-release needs full history + tags
+          persist-credentials: false # release uses the App token (env), not the git credential
+
+      - name: 🔐 Fetch secrets (Infisical, OIDC)
+        # Release only. Injects NUGET_API_KEY + ENDATIX_PROJECT_AUTOMATIONS_APP_ID +
+        # ENDATIX_PROJECT_AUTOMATIONS_PRIVATE_KEY into the job env for the steps below; reference them as
+        # ${{ env.X }}. (When a private NuGet feed is added, drop this `if` so PR restores can authenticate.)
+        if: github.event_name == 'push'
+        uses: Infisical/secrets-action@03d3fa38607956c493f53c6633f94006a13c47ae # v1.0.7
+        with:
+          method: "oidc"
+          env-slug: "dev"
+          project-slug: "github-actions-for-endatix"
+          identity-id: "403af1ed-7046-480f-a100-c4482b8a89ac"
+          recursive: true
+
+      - name: 📦 Setup .NET
+        uses: actions/setup-dotnet@9a946fdbd5fb07b82b2f5a4466058b876ab72bb2 # v5.3.0
+        with:
+          dotnet-version: "10.x"
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      - name: 🧪 Run tests
+        run: dotnet test --no-build -c Release --verbosity normal
+
+      # ----- Release (main only) -----
+      - name: 🔑 Mint release-bot token (GitHub App)
+        if: github.ref_name == 'main'
+        id: app-token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          # App id + private key are injected by the Infisical step above.
+          app-id: ${{ env.ENDATIX_PROJECT_AUTOMATIONS_APP_ID }}
+          private-key: ${{ env.ENDATIX_PROJECT_AUTOMATIONS_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }} # scope the token to THIS repo only
+
+      - name: 📦 Setup Node
+        if: github.ref_name == 'main'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "lts/*"
+
+      - name: 🚀 Semantic Release
+        if: github.ref_name == 'main'
+        uses: cycjimmy/semantic-release-action@ba330626c4750c19d8299de843f05c7aa5574f62 # v5.0.2
+        with:
+          semantic_version: 24
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@8
+            @semantic-release/exec@6
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }} # App token, not the read-only job token
+          # NUGET_API_KEY is injected by the Infisical step above.

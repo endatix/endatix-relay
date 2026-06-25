@@ -1,0 +1,13 @@
+branches:
+  - main
+plugins:
+  - - "@semantic-release/commit-analyzer"
+    - preset: conventionalcommits
+  - - "@semantic-release/release-notes-generator"
+    - preset: conventionalcommits
+  - - "@semantic-release/exec"
+    # Build/test run as workflow steps (they gate every PR + main run); semantic-release runs on main
+    # only and owns versioning → pack → nuget push → GitHub release.
+    - prepareCmd: "dotnet pack src/Endatix.Outbox.Engine/Endatix.Outbox.Engine.csproj -c Release -p:Version=${nextRelease.version} -o .artifacts"
+      publishCmd: "dotnet nuget push '.artifacts/*.nupkg' -k $NUGET_API_KEY -s https://api.nuget.org/v3/index.json --skip-duplicate"
+  - "@semantic-release/github"

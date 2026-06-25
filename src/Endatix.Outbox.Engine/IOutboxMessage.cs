@@ -1,0 +1,35 @@
+namespace Endatix.Outbox.Engine;
+
+/// <summary>
+/// The read contract the relay loop and publishers operate on. Kept deliberately minimal and
+/// storage-agnostic. The engine's own <see cref="SqlOutboxClaimStore"/> materializes the lightweight
+/// engine-owned <c>OutboxMessageRow</c>; a host that supplies its own claim store may instead implement this
+/// on its persistence entity (e.g. Endatix's <c>OutboxMessage</c>).
+/// </summary>
+public interface IOutboxMessage
+{
+    /// <summary>Stable, monotonic identifier of the outbox row. Used as the cross-process dedup key.</summary>
+    long Id { get; }
+
+    /// <summary>Stable, broker-facing contract name (also the published topic), e.g. <c>"form.created"</c>.</summary>
+    string EventType { get; }
+
+    /// <summary>Serialized event payload (opaque JSON to the engine).</summary>
+    string Payload { get; }
+
+    /// <summary>Owning tenant, carried on the row so consumers can re-establish tenant context.</summary>
+    long TenantId { get; }
+
+    /// <summary>When the originating business event occurred. Offset-aware so the instant is unambiguous
+    /// regardless of host clock <c>Kind</c>; persisted as UTC.</summary>
+    DateTimeOffset OccurredAt { get; }
+
+    /// <summary>Version of the payload/contract shape.</summary>
+    int SchemaVersion { get; }
+
+    /// <summary>Number of delivery attempts made so far (before the current one).</summary>
+    int Attempts { get; }
+
+    /// <summary>Originating distributed-trace id, if any, for cross-process correlation.</summary>
+    string? TraceId { get; }
+}
