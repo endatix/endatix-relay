@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace Endatix.Outbox.Engine;
 
@@ -24,6 +25,10 @@ public static class OutboxRelayServiceCollectionExtensions
         {
             optionsBuilder.Configure(configureOptions);
         }
+
+        // Validate tuning values (positive ranges + backoff cap >= base). Materialized at startup via the
+        // relay's ctor (reads IOptions.Value), so bad config fails fast instead of silently misbehaving.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<OutboxOptions>, OutboxOptionsValidator>());
 
         services.TryAddScoped<IOutboxRelayGate, OpenFeatureOutboxRelayGate>();
         services.AddHostedService<OutboxRelayBackgroundService>();

@@ -1,5 +1,8 @@
 using Endatix.Outbox.Engine;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace Endatix.Outbox.Engine.Tests;
 
@@ -56,6 +59,56 @@ public class OutboxRelayRegistrationTests
     public async Task AlwaysOnOutboxRelayGate_is_always_enabled()
     {
         Assert.True(await new AlwaysOnOutboxRelayGate().IsRelayEnabledAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Default_gate_resolves_and_fails_open_when_OpenFeature_is_not_registered()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>)); // logging, but no OpenFeature provider
+        services.AddOutboxRelay();
+        using var provider = services.BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var gate = scope.ServiceProvider.GetRequiredService<IOutboxRelayGate>();
+
+        Assert.True(await gate.IsRelayEnabledAsync(CancellationToken.None)); // default ON, no throw
+    }
+
+    [Fact]
+    public void Valid_options_pass_validation()
+    {
+        var services = new ServiceCollection();
+        services.AddOutboxRelay();
+        using var provider = services.BuildServiceProvider();
+
+        var options = provider.GetRequiredService<IOptions<OutboxOptions>>().Value;
+
+        Assert.Equal(50, options.BatchSize);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Nonpositive_tuning_value_fails_validation(int badBatchSize)
+    {
+        var services = new ServiceCollection();
+        services.AddOutboxRelay(o => o.BatchSize = badBatchSize);
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<OutboxOptions>>();
+
+        Assert.Throws<OptionsValidationException>(() => _ = options.Value);
+    }
+
+    [Fact]
+    public void Backoff_cap_below_base_fails_validation()
+    {
+        var services = new ServiceCollection();
+        services.AddOutboxRelay(o => { o.BackoffBaseSeconds = 100; o.BackoffCapSeconds = 10; });
+        using var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<IOptions<OutboxOptions>>();
+
+        Assert.Throws<OptionsValidationException>(() => _ = options.Value);
     }
 
     private static IEnumerable<ServiceDescriptor> GateDescriptors(IServiceCollection services) =>

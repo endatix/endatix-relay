@@ -46,10 +46,11 @@ public class OutboxRelayBackgroundService : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var processed = 0;
             try
             {
                 using var scope = _scopeFactory.CreateScope();
-                await ProcessOnceAsync(scope.ServiceProvider, stoppingToken);
+                processed = await ProcessOnceAsync(scope.ServiceProvider, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -58,6 +59,14 @@ public class OutboxRelayBackgroundService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Outbox relay tick failed; will retry next poll.");
+            }
+
+            // Drain: a full batch means more rows are likely ready now — loop immediately instead of
+            // waiting a full poll interval (otherwise throughput caps at BatchSize / PollInterval). Only
+            // delay when the tick caught up (partial batch), was idle, or gated off (all return < BatchSize).
+            if (processed >= _options.BatchSize)
+            {
+                continue;
             }
 
             await DelayAsync(_options.PollInterval, stoppingToken);

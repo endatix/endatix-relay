@@ -14,8 +14,6 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="OpenFeature" />
-    <PackageReference Include="OpenFeature.Hosting" />
-    <PackageReference Include="OpenFeature.DependencyInjection" />
   </ItemGroup>
 
   <ItemGroup>
