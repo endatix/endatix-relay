@@ -113,40 +113,20 @@ public class OutboxRelayBackgroundService : BackgroundService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            var publishSucceeded = false;
             try
             {
                 await publisher.PublishAsync(message, cancellationToken);
+                publishSucceeded = true;
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
+            catch (Exception ex) when (!IsCancellation(ex, cancellationToken))
             {
                 await HandlePublishFailureAsync(claimStore, message, ex, cancellationToken);
-                continue;
             }
 
-            // Publish succeeded. A MarkSent failure must NOT be routed to HandlePublishFailureAsync — that
-            // would re-publish a delivered message or, at MaxAttempts, wrongly dead-letter it. Instead abort
-            // the tick by rethrowing: a failing mark usually means the store is unhealthy, so continuing
-            // would publish the rest of the batch and redeliver all of them on lease expiry (a duplicate
-            // storm). The already-published row redelivers after its lease expires (at-least-once); the
-            // remaining claimed rows were never published, so they simply wait for the next tick.
-            try
+            if (publishSucceeded)
             {
-                await claimStore.MarkSentAsync(message, _instanceId, cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(
-                    ex, "Outbox message {MessageId} ({EventType}) published but MarkSent failed; aborting the tick (it redelivers after lease expiry).",
-                    message.Id, message.EventType);
-                throw;
+                await MarkSentOrAbortTickAsync(claimStore, message, cancellationToken);
             }
         }
 
@@ -172,6 +152,33 @@ public class OutboxRelayBackgroundService : BackgroundService
             await claimStore.RescheduleAsync(message, nextAttemptAt, _instanceId, cancellationToken);
         }
     }
+
+    // Marks a published row sent. A MarkSent failure must NOT be routed to HandlePublishFailureAsync — that
+    // would re-publish a delivered message or, at MaxAttempts, wrongly dead-letter it. Instead abort the tick
+    // by rethrowing: a failing mark usually means the store is unhealthy, so continuing would publish the rest
+    // of the batch and redeliver all of them on lease expiry (a duplicate storm). The already-published row
+    // redelivers after its lease expires (at-least-once); the remaining claimed rows were never published.
+    private async Task MarkSentOrAbortTickAsync(
+        IOutboxClaimStore claimStore, IOutboxMessage message, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await claimStore.MarkSentAsync(message, _instanceId, cancellationToken);
+        }
+        catch (Exception ex) when (!IsCancellation(ex, cancellationToken))
+        {
+            _logger.LogError(
+                ex, "Outbox message {MessageId} ({EventType}) published but MarkSent failed; aborting the tick (it redelivers after lease expiry).",
+                message.Id, message.EventType);
+            throw;
+        }
+    }
+
+    // True when the exception is cooperative cancellation of this loop — it must propagate (abort the loop)
+    // rather than be treated as a publish/mark failure. Used as an exception filter so cancellation is never
+    // caught as a delivery error.
+    private static bool IsCancellation(Exception ex, CancellationToken cancellationToken) =>
+        ex is OperationCanceledException && cancellationToken.IsCancellationRequested;
 
     /// <summary>
     /// Exponential backoff with a cap: <c>now + min(cap, base * 2^attempts)</c>. <paramref name="attempts"/>
