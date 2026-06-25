@@ -1,0 +1,36 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+
+reviews:
+  profile: "assertive" # surface more, including nits; switch to "chill" for fewer
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  poem: false
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true # re-enable automatic reviews (was disabled at the org level)
+    drafts: false # don't review draft PRs
+    base_branches:
+      - "main"
+  path_instructions:
+    - path: "src/**/*.cs"
+      instructions: >-
+        This is an endatix-agnostic transactional-outbox relay engine. Pay special
+        attention to: provider-specific raw SQL correctness (PostgreSQL
+        `FOR UPDATE SKIP LOCKED` vs SQL Server `READPAST/UPDLOCK/ROWLOCK` hint
+        placement and ORDER BY), lease/claim concurrency and at-least-once
+        semantics (lease ownership on mark/reschedule/fail, affected-row counts),
+        DI service lifetimes (a singleton BackgroundService resolving scoped
+        services from a per-tick scope; captive dependencies), DateTime UTC
+        handling across the DB boundary, and cancellation/shutdown behavior.
+    - path: ".github/workflows/**"
+      instructions: >-
+        Flag GitHub Actions supply-chain and least-privilege issues: SHA-pinned
+        actions, minimal GITHUB_TOKEN permissions (read-only default, write only
+        on the release job), persist-credentials on checkout, and concurrency
+        groups for release workflows.
+
+chat:
+  auto_reply: true
