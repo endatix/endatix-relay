@@ -60,11 +60,13 @@ internal sealed class OutboxSqlBuilder
         }
 
         // SQL Server: READPAST is the SKIP LOCKED equivalent; OUTPUT returns the claimed rows.
+        // The table hint MUST sit on the table source in the FROM clause — not on the UPDATE-clause
+        // alias (which the FROM defines), or it is rejected/ignored and skip-locked is lost.
         var output = string.Join(", ", ProjectionColumns.Select(col => "inserted." + Q(col)));
         return
-            $"UPDATE TOP (@batchSize) o WITH (READPAST, UPDLOCK, ROWLOCK) " +
+            $"UPDATE TOP (@batchSize) o " +
             $"SET {Q(OutboxSchema.LockedBy)} = @lockedBy, {Q(OutboxSchema.LockedUntil)} = @lockedUntil " +
-            $"OUTPUT {output} FROM {_table} o " +
+            $"OUTPUT {output} FROM {_table} o WITH (READPAST, UPDLOCK, ROWLOCK) " +
             $"WHERE o.{Q(OutboxSchema.Status)} = {pending} " +
             $"AND (o.{Q(OutboxSchema.LockedUntil)} IS NULL OR o.{Q(OutboxSchema.LockedUntil)} <= @now) " +
             $"AND (o.{Q(OutboxSchema.NextAttemptAt)} IS NULL OR o.{Q(OutboxSchema.NextAttemptAt)} <= @now);";

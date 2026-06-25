@@ -22,11 +22,12 @@ public class OutboxSqlBuilderTests
     {
         var sql = new OutboxSqlBuilder(OutboxSqlDialect.SqlServer, "OutboxMessages").ClaimSql;
 
-        Assert.Contains("WITH (READPAST, UPDLOCK, ROWLOCK)", sql);
         Assert.Contains("UPDATE TOP (@batchSize)", sql);
         Assert.Contains("OUTPUT", sql);
-        Assert.Contains("[OutboxMessages]", sql);
         Assert.DoesNotContain("FOR UPDATE SKIP LOCKED", sql);
+        // The hint must be on the FROM-clause table, not on the UPDATE-clause alias.
+        Assert.Contains("FROM [OutboxMessages] o WITH (READPAST, UPDLOCK, ROWLOCK)", sql);
+        Assert.DoesNotContain("o WITH (READPAST, UPDLOCK, ROWLOCK) SET", sql);
     }
 
     [Theory]
