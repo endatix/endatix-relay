@@ -58,9 +58,14 @@ runs `dotnet pack -p:Version=<computed>` and `dotnet nuget push` to nuget.org.
 - `fix:` → patch · `feat:` → minor · `feat!:` / `BREAKING CHANGE:` → major · `chore/docs/refactor/...` → no release.
 - Use Conventional Commit messages (or squash-merge with a Conventional PR title).
 
-**One-time repo setup:**
-- Add repository secret **`NUGET_API_KEY`** (nuget.org key scoped to push `Endatix.Outbox.Engine`).
-- `GITHUB_TOKEN` is built-in; the workflow grants it `contents/issues/pull-requests: write` for tags/releases.
+**One-time setup:**
+- The job's `GITHUB_TOKEN` stays **read-only**. Release writes (tags/releases/PR comments) come from a
+  short-lived **GitHub App** installation token minted only on `main` — so PRs never carry write scopes.
+- Store these in **Infisical** (`dev` env of `github-actions-for-endatix`; the `recursive` fetch finds them
+  in any subfolder), loaded by the Infisical OIDC step before release:
+  - **`NUGET_API_KEY`** — nuget.org key scoped to push `Endatix.Outbox.Engine`.
+  - **`ENDATIX_PROJECT_AUTOMATIONS_APP_ID`** / **`ENDATIX_PROJECT_AUTOMATIONS_PRIVATE_KEY`** — the release-bot
+    GitHub App (installed on this repo with **contents + issues + pull-requests: write**).
 - Allow the workflow to create releases/tags on `main` (branch-protection “allow GitHub Actions”).
 
 > No file is committed back to `main` (no `@semantic-release/git`), so this works cleanly with protected

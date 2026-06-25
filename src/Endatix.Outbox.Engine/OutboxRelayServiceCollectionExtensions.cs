@@ -82,9 +82,11 @@ public static class OutboxRelayServiceCollectionExtensions
             options.Dialect = dialect;
             options.TableName = tableName ?? OutboxSchema.DefaultTable;
         });
-        services.TryAddSingleton<IOutboxConnectionFactory>(
+        // Scoped, not singleton: the factory closes over `sp`, so it must bind the per-tick scope's provider
+        // — a singleton would pin the root container and break any host factory that resolves scoped services.
+        services.TryAddScoped<IOutboxConnectionFactory>(
             sp => new DelegateOutboxConnectionFactory(() => connectionFactory(sp)));
-        services.TryAddSingleton<IOutboxClaimStore, SqlOutboxClaimStore>();
+        services.TryAddScoped<IOutboxClaimStore, SqlOutboxClaimStore>();
 
         return services;
     }

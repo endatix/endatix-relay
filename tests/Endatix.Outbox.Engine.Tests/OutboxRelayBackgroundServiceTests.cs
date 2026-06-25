@@ -97,7 +97,7 @@ public class OutboxRelayBackgroundServiceTests
         await relay.ProcessOnceAsync(services, CancellationToken.None);
 
         await _claimStore.Received(1).RescheduleAsync(
-            message, Arg.Is<DateTime>(d => d > DateTime.UtcNow), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            message, Arg.Is<DateTimeOffset>(d => d > DateTimeOffset.UtcNow), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
@@ -116,26 +116,31 @@ public class OutboxRelayBackgroundServiceTests
 
         await _claimStore.Received(1).MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().RescheduleAsync(
-            message, Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+            message, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task MarkSent_failure_is_not_treated_as_a_publish_failure()
+    public async Task MarkSent_failure_aborts_the_tick_without_dead_lettering_or_storming_the_batch()
     {
         GateReturns(true);
-        var message = new FakeOutboxMessage(1, Attempts: 0);
-        ClaimReturns(message);
-        _claimStore.MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>())
+        var m1 = new FakeOutboxMessage(1, Attempts: 0);
+        var m2 = new FakeOutboxMessage(2, Attempts: 0);
+        ClaimReturns(m1, m2);
+        _claimStore.MarkSentAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new InvalidOperationException("mark boom")));
         var (relay, services) = Build(new OutboxOptions { MaxAttempts = 1 }); // would dead-letter if misrouted
 
-        var processed = await relay.ProcessOnceAsync(services, CancellationToken.None);
+        // The mark failure propagates, ending the tick (the ExecuteAsync loop logs + retries next poll).
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => relay.ProcessOnceAsync(services, CancellationToken.None));
 
-        Assert.Equal(1, processed); // publish succeeded; mark failure logged, batch not aborted
-        await _publisher.Received(1).PublishAsync(message, Arg.Any<CancellationToken>());
-        await _claimStore.Received(1).MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _claimStore.DidNotReceive().RescheduleAsync(message, Arg.Any<DateTime>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _claimStore.DidNotReceive().MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _publisher.Received(1).PublishAsync(m1, Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkSentAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        // Batch aborted: the rest of the claimed rows are NOT published (no duplicate storm)...
+        await _publisher.DidNotReceive().PublishAsync(m2, Arg.Any<CancellationToken>());
+        // ...and a MarkSent failure is never rerouted to reschedule/dead-letter.
+        await _claimStore.DidNotReceive().RescheduleAsync(m1, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().MarkFailedAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -145,7 +150,7 @@ public class OutboxRelayBackgroundServiceTests
     [InlineData(10, 300)]   // 5 * 1024 = 5120 -> capped at 300
     public void ComputeNextAttempt_is_capped_exponential(int attempts, int expectedSeconds)
     {
-        var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var options = new OutboxOptions { BackoffBaseSeconds = 5, BackoffCapSeconds = 300 };
 
         var next = OutboxRelayBackgroundService.ComputeNextAttempt(attempts, now, options);

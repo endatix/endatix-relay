@@ -29,7 +29,7 @@ public class OutboxRelayRegistrationTests
         var gate = Assert.Single(GateDescriptors(services)); // TryAdd default skipped → exactly one
         Assert.Equal(typeof(AlwaysOnOutboxRelayGate), gate.ImplementationType);
 
-        Assert.IsType<AlwaysOnOutboxRelayGate>(ResolveGate(services));
+        Assert.Equal(typeof(AlwaysOnOutboxRelayGate), ResolveGateType(services));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class OutboxRelayRegistrationTests
         var gate = Assert.Single(GateDescriptors(services));
         Assert.NotNull(gate.ImplementationFactory);
 
-        Assert.IsType<AlwaysOnOutboxRelayGate>(ResolveGate(services));
+        Assert.Equal(typeof(AlwaysOnOutboxRelayGate), ResolveGateType(services));
     }
 
     [Fact]
@@ -114,10 +114,12 @@ public class OutboxRelayRegistrationTests
     private static IEnumerable<ServiceDescriptor> GateDescriptors(IServiceCollection services) =>
         services.Where(d => d.ServiceType == typeof(IOutboxRelayGate));
 
-    private static IOutboxRelayGate ResolveGate(IServiceCollection services)
+    // Resolve and return the gate's TYPE inside the scope — never hand back a service whose provider/scope
+    // has already been disposed (the assertion would run against an invalid instance).
+    private static Type ResolveGateType(IServiceCollection services)
     {
         using var provider = services.BuildServiceProvider();
         using var scope = provider.CreateScope();
-        return scope.ServiceProvider.GetRequiredService<IOutboxRelayGate>();
+        return scope.ServiceProvider.GetRequiredService<IOutboxRelayGate>().GetType();
     }
 }

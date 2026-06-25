@@ -19,8 +19,9 @@ public interface IOutboxMessage
     /// <summary>Owning tenant, carried on the row so consumers can re-establish tenant context.</summary>
     long TenantId { get; }
 
-    /// <summary>When the originating business event occurred (UTC).</summary>
-    DateTime OccurredAt { get; }
+    /// <summary>When the originating business event occurred. Offset-aware so the instant is unambiguous
+    /// regardless of host clock <c>Kind</c>; persisted as UTC.</summary>
+    DateTimeOffset OccurredAt { get; }
 
     /// <summary>Version of the payload/contract shape.</summary>
     int SchemaVersion { get; }

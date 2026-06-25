@@ -63,7 +63,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     }
 
     /// <inheritdoc />
-    public async Task RescheduleAsync(IOutboxMessage message, DateTime nextAttemptAt, string instanceId, CancellationToken cancellationToken)
+    public async Task RescheduleAsync(IOutboxMessage message, DateTimeOffset nextAttemptAt, string instanceId, CancellationToken cancellationToken)
     {
         var affected = await ExecuteAsync(_sql.RescheduleSql, cancellationToken,
             ("@id", message.Id), ("@lockedBy", instanceId), ("@nextAttemptAt", nextAttemptAt));
@@ -108,14 +108,22 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     {
         var parameter = command.CreateParameter();
         parameter.ParameterName = name;
-        parameter.Value = value is DateTime dt ? ToUtc(dt) : value;
+        parameter.Value = NormalizeTimestamp(value);
         command.Parameters.Add(parameter);
     }
 
-    // All outbox timestamps are persisted as UTC (PostgreSQL `timestamptz`, SQL Server `datetime2`).
-    // Normalize every DateTime parameter to Kind=Utc at the boundary so a Local/Unspecified value from a
-    // caller can't (a) throw under Npgsql's strict timestamptz mode or (b) be compared in a different frame
-    // than the always-UTC `@now`. Unspecified is assumed to already be UTC (the engine's own values are).
+    // All outbox timestamps are persisted as UTC (PostgreSQL `timestamptz`, SQL Server `datetime2`). Bind
+    // every timestamp as a Kind=Utc DateTime: a DateTimeOffset becomes its UtcDateTime, and a bare DateTime
+    // is coerced to UTC. This keeps both providers happy (Npgsql's strict timestamptz mode requires UTC) and
+    // ensures values are compared in the same frame as the always-UTC `@now`.
+    private static object NormalizeTimestamp(object value) => value switch
+    {
+        DateTimeOffset dto => dto.UtcDateTime,
+        DateTime dt => ToUtc(dt),
+        _ => value,
+    };
+
+    // A bare DateTime has no offset; Unspecified is assumed to already be UTC (the engine's own values are).
     internal static DateTime ToUtc(DateTime value) => value.Kind switch
     {
         DateTimeKind.Utc => value,
@@ -129,7 +137,8 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
         EventType = reader.GetString(1),
         Payload = reader.GetString(2),
         TenantId = reader.GetInt64(3),
-        OccurredAt = DateTime.SpecifyKind(reader.GetDateTime(4), DateTimeKind.Utc),
+        // Stored as UTC; project to a zero-offset DateTimeOffset (works for timestamptz and datetime2 alike).
+        OccurredAt = new DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(4), DateTimeKind.Utc)),
         SchemaVersion = reader.GetInt32(5),
         Attempts = reader.GetInt32(6),
         TraceId = reader.IsDBNull(7) ? null : reader.GetString(7),

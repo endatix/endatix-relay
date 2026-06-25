@@ -23,7 +23,10 @@ concurrency:
 
 permissions:
   contents: read # release writes come from the App token below, not this token
-  id-token: write # OIDC for the Infisical secret fetch (exercised on push only)
+  # Single-job design (one checkout, by choice over a split release job that would re-checkout the repo).
+  # id-token grants OIDC federation (NOT repo write) and is only EXERCISED on push — the Infisical step is
+  # push-gated and PRs never reach it. Accepting the broad-permission warning rather than double-checkout.
+  id-token: write # zizmor: ignore[excessive-permissions]
 
 jobs:
   pipeline:
@@ -41,7 +44,7 @@ jobs:
         # ENDATIX_PROJECT_AUTOMATIONS_PRIVATE_KEY into the job env for the steps below; reference them as
         # ${{ env.X }}. (When a private NuGet feed is added, drop this `if` so PR restores can authenticate.)
         if: github.event_name == 'push'
-        uses: Infisical/secrets-action@v1.0.7
+        uses: Infisical/secrets-action@03d3fa38607956c493f53c6633f94006a13c47ae # v1.0.7
         with:
           method: "oidc"
           env-slug: "dev"
@@ -73,6 +76,7 @@ jobs:
           app-id: ${{ env.ENDATIX_PROJECT_AUTOMATIONS_APP_ID }}
           private-key: ${{ env.ENDATIX_PROJECT_AUTOMATIONS_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }} # scope the token to THIS repo only
 
       - name: 📦 Setup Node
         if: github.ref_name == 'main'

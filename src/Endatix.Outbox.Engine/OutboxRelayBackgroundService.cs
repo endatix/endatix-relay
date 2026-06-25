@@ -49,7 +49,7 @@ public class OutboxRelayBackgroundService : BackgroundService
             var processed = 0;
             try
             {
-                using var scope = _scopeFactory.CreateScope();
+                await using var scope = _scopeFactory.CreateAsyncScope();
                 processed = await ProcessOnceAsync(scope.ServiceProvider, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -127,9 +127,12 @@ public class OutboxRelayBackgroundService : BackgroundService
                 continue;
             }
 
-            // Publish succeeded. A MarkSent failure must NOT be routed to HandlePublishFailureAsync —
-            // that would re-publish a delivered message or, at MaxAttempts, wrongly dead-letter it. Log it
-            // and move on; the lease expires and the row is reclaimed/redelivered (still at-least-once).
+            // Publish succeeded. A MarkSent failure must NOT be routed to HandlePublishFailureAsync — that
+            // would re-publish a delivered message or, at MaxAttempts, wrongly dead-letter it. Instead abort
+            // the tick by rethrowing: a failing mark usually means the store is unhealthy, so continuing
+            // would publish the rest of the batch and redeliver all of them on lease expiry (a duplicate
+            // storm). The already-published row redelivers after its lease expires (at-least-once); the
+            // remaining claimed rows were never published, so they simply wait for the next tick.
             try
             {
                 await claimStore.MarkSentAsync(message, _instanceId, cancellationToken);
@@ -141,8 +144,9 @@ public class OutboxRelayBackgroundService : BackgroundService
             catch (Exception ex)
             {
                 _logger.LogError(
-                    ex, "Outbox message {MessageId} ({EventType}) published but MarkSent failed; it will be redelivered after lease expiry.",
+                    ex, "Outbox message {MessageId} ({EventType}) published but MarkSent failed; aborting the tick (it redelivers after lease expiry).",
                     message.Id, message.EventType);
+                throw;
             }
         }
 
@@ -161,7 +165,7 @@ public class OutboxRelayBackgroundService : BackgroundService
         }
         else
         {
-            var nextAttemptAt = ComputeNextAttempt(message.Attempts, DateTime.UtcNow, _options);
+            var nextAttemptAt = ComputeNextAttempt(message.Attempts, DateTimeOffset.UtcNow, _options);
             _logger.LogWarning(
                 ex, "Outbox message {MessageId} ({EventType}) publish failed (attempt {Attempt}); retry at {NextAttemptAt:o}.",
                 message.Id, message.EventType, message.Attempts + 1, nextAttemptAt);
@@ -173,7 +177,7 @@ public class OutboxRelayBackgroundService : BackgroundService
     /// Exponential backoff with a cap: <c>now + min(cap, base * 2^attempts)</c>. <paramref name="attempts"/>
     /// is the count before the just-failed attempt. Pure/static so it can be unit-tested deterministically.
     /// </summary>
-    internal static DateTime ComputeNextAttempt(int attempts, DateTime utcNow, OutboxOptions options)
+    internal static DateTimeOffset ComputeNextAttempt(int attempts, DateTimeOffset utcNow, OutboxOptions options)
     {
         var exponent = Math.Min(attempts, 30); // guard against overflow on pathological attempt counts
         var seconds = options.BackoffBaseSeconds * Math.Pow(2, exponent);

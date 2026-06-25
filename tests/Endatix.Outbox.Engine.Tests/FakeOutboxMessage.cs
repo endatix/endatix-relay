@@ -12,5 +12,5 @@ internal sealed record FakeOutboxMessage(
     int Attempts = 0,
     string? TraceId = null) : IOutboxMessage
 {
-    public DateTime OccurredAt { get; init; } = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    public DateTimeOffset OccurredAt { get; init; } = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 }

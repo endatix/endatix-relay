@@ -26,7 +26,7 @@ public interface IOutboxClaimStore
     /// gate to <paramref name="nextAttemptAt"/>, and releases the lease. Guarded by lease ownership
     /// (<paramref name="instanceId"/>).
     /// </summary>
-    Task RescheduleAsync(IOutboxMessage message, DateTime nextAttemptAt, string instanceId, CancellationToken cancellationToken);
+    Task RescheduleAsync(IOutboxMessage message, DateTimeOffset nextAttemptAt, string instanceId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Marks a row as terminally failed (max attempts exhausted) and releases its lease. Guarded by lease
