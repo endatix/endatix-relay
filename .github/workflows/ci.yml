@@ -40,11 +40,6 @@ jobs:
           persist-credentials: false # release uses the App token (env), not the git credential
 
       - name: 🔐 Fetch secrets (Infisical, OIDC)
-        # Runs on push AND same-repo PRs (so SonarCloud can analyze PRs), but NOT fork PRs — a fork's OIDC
-        # subject is indistinguishable from an internal PR, so gating on "head repo == this repo" is what
-        # keeps fork PRs from pulling secrets. Injects ENDATIX_RELAY_REPO_SONAR_TOKEN (Sonar) +
-        # NUGET_API_KEY + ENDATIX_PROJECT_AUTOMATIONS_APP_ID/_PRIVATE_KEY (release, used on main only).
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
         uses: Infisical/secrets-action@03d3fa38607956c493f53c6633f94006a13c47ae # v1.0.7
         with:
           method: "oidc"
