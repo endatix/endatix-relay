@@ -1,19 +1,19 @@
 name: Build, Test & Release
 
 # Trunk-based. ONE job, ONE checkout, AND least privilege:
-#   • PR to main → build + test           (job token is read-only)
-#   • push main  → build + test, then semantic-release packs → nuget push → GitHub release
+#   • PR to main → build + test (+ SonarCloud on same-repo PRs)   (job token is read-only)
+#   • push main  → build + test + SonarCloud, then semantic-release packs → nuget push → GitHub release
 #
-# The job's own GITHUB_TOKEN stays read-only. Release writes (tags/releases/PR comments) use a
-# short-lived GitHub App installation token minted ONLY on main (see "Mint release-bot token").
-# So PRs never carry repo-write scopes, with no second checkout — solving the
-# least-privilege-vs-double-checkout trade-off.
+# The job's own GITHUB_TOKEN stays read-only. Release writes (tags/releases/PR comments) use a short-lived
+# GitHub App installation token minted ONLY on main. So PRs never carry repo-write scopes, with no second
+# checkout — solving the least-privilege-vs-double-checkout trade-off.
 
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:  
 
 # Serialize runs per ref so two quick merges to main can't run overlapping releases
 # (which would race on tag creation / nuget push). Never cancel an in-flight release.
@@ -24,26 +24,23 @@ concurrency:
 permissions:
   contents: read # release writes come from the App token below, not this token
   # Single-job design (one checkout, by choice over a split release job that would re-checkout the repo).
-  # id-token grants OIDC federation (NOT repo write) and is only EXERCISED on push — the Infisical step is
-  # push-gated and PRs never reach it. Accepting the broad-permission warning rather than double-checkout.
+  # id-token grants OIDC federation (NOT repo write); only same-repo runs ever fetch secrets (see below).
   id-token: write # zizmor: ignore[excessive-permissions]
 
 jobs:
   pipeline:
     name: Build, Test & Release
     runs-on: ubuntu-latest
+    environment:
+      name: Production  
     steps:
       - name: 🔍 Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          fetch-depth: 0 # semantic-release needs full history + tags
+          fetch-depth: 0 # semantic-release needs full history + tags; Sonar wants full SCM blame
           persist-credentials: false # release uses the App token (env), not the git credential
 
       - name: 🔐 Fetch secrets (Infisical, OIDC)
-        # Release only. Injects NUGET_API_KEY + ENDATIX_PROJECT_AUTOMATIONS_APP_ID +
-        # ENDATIX_PROJECT_AUTOMATIONS_PRIVATE_KEY into the job env for the steps below; reference them as
-        # ${{ env.X }}. (When a private NuGet feed is added, drop this `if` so PR restores can authenticate.)
-        if: github.event_name == 'push'
         uses: Infisical/secrets-action@03d3fa38607956c493f53c6633f94006a13c47ae # v1.0.7
         with:
           method: "oidc"
@@ -57,17 +54,58 @@ jobs:
         with:
           dotnet-version: "10.x"
 
+      # ----- SonarCloud setup (skipped when no token, i.e. fork PRs) -----
+      - name: ☕ Setup Java (SonarScanner)
+        if: env.ENDATIX_RELAY_REPO_SONAR_TOKEN != ''
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: zulu
+          java-version: "17"
+
+      - name: 🔧 Install SonarScanner
+        if: env.ENDATIX_RELAY_REPO_SONAR_TOKEN != ''
+        run: |
+          dotnet tool install --global dotnet-sonarscanner
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
       - name: Restore dependencies
         run: dotnet restore
+
+      - name: 🔬 SonarCloud begin
+        if: env.ENDATIX_RELAY_REPO_SONAR_TOKEN != ''
+        run: |
+          dotnet-sonarscanner begin \
+            /k:"endatix_endatix-relay" \
+            /o:"endatix" \
+            /d:sonar.host.url="https://sonarcloud.io" \
+            /d:sonar.token="$ENDATIX_RELAY_REPO_SONAR_TOKEN" \
+            /d:sonar.cs.opencover.reportsPaths="${{ github.workspace }}/TestResults/**/coverage.opencover.xml" \
+            /d:sonar.exclusions="tests/**" \
+            /d:sonar.qualitygate.wait=true
 
       - name: Build
         run: dotnet build --no-restore -c Release
 
-      - name: 🧪 Run tests
-        run: dotnet test --no-build -c Release --verbosity normal
+      - name: 🧪 Run unit tests
+        run: |
+          dotnet test --no-build -c Release --verbosity normal --filter "Category!=Integration" \
+            --collect:"XPlat Code Coverage" --results-directory "${{ github.workspace }}/TestResults" \
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+
+      # Real-DB suite (Testcontainers). ubuntu-latest has Docker; the fixtures pull postgres:16.
+      - name: 🐳 Run integration tests
+        run: |
+          dotnet test --no-build -c Release --verbosity normal --filter "Category=Integration" \
+            --collect:"XPlat Code Coverage" --results-directory "${{ github.workspace }}/TestResults" \
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+
+      - name: 🔬 SonarCloud end
+        # always() so analysis still uploads after a test failure; skipped when begin didn't run (no token).
+        if: always() && env.ENDATIX_RELAY_REPO_SONAR_TOKEN != ''
+        run: dotnet-sonarscanner end /d:sonar.token="$ENDATIX_RELAY_REPO_SONAR_TOKEN"
 
       # ----- Release (main only) -----
-      - name: 🔑 Mint release-bot token (GitHub App)
+      - name: 🔑 Endatix Automations APP token (GitHub App)
         if: github.ref_name == 'main'
         id: app-token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
@@ -83,6 +121,13 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "lts/*"
+      
+          # Get a short-lived NuGet API key
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        id: login
+        with:
+          user: ${{ env.ENDATIX_NUGET_ORG_USERNAME }} # Recommended: use a secret like ${{ secrets.NUGET_USER }} for your nuget.org username (profile name), NOT your email address
 
       - name: 🚀 Semantic Release
         if: github.ref_name == 'main'
@@ -94,4 +139,4 @@ jobs:
             @semantic-release/exec@6
         env:
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }} # App token, not the read-only job token
-          # NUGET_API_KEY is injected by the Infisical step above.
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }} 
