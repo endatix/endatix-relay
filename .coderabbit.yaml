@@ -32,5 +32,40 @@ reviews:
         on the release job), persist-credentials on checkout, and concurrency
         groups for release workflows.
 
+        Do NOT flag the following — they are intentional, reviewed design
+        decisions, not findings:
+
+        1. Secret separation by Infisical environment, not by per-step splitting.
+        The single "Fetch secrets (Infisical, OIDC)" step uses
+        `env-slug: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}`
+        with `recursive: true`. Pull requests resolve to the `dev` environment,
+        which by policy contains ONLY the SonarCloud token; the `prod`
+        environment (release secrets: NuGet API key, GitHub App id/private key)
+        is reachable ONLY from `refs/heads/main`. `github.ref` is not
+        attacker-controllable on `pull_request` events, so PRs can never reach
+        `prod`. Do not suggest splitting PR vs release secrets into separate
+        steps — the environment split already keeps release secrets off the PR
+        runner entirely.
+
+        2. The SonarCloud token being present while same-repo PR code runs is an
+        accepted trade-off required to run the quality gate on PRs. It is
+        low-blast-radius and forks get no secrets (OIDC id-tokens are not issued
+        to fork-triggered workflows). Do not flag this.
+
+        3. Release credential steps (GitHub App token, NuGet login,
+        semantic-release) are intentionally gated with `if: github.ref_name == 'main'`
+        as defense-in-depth even though the `prod` secrets only exist on main.
+        Do not flag these guards as redundant or as missing on PRs.
+
+        4. The single-job design (one `pipeline` job for build + test + release,
+        one checkout) is intentional and chosen for reusability: the build and
+        test steps are defined ONCE and run identically on both the PR-validation
+        path and the release path, so a change to how the project is built/tested
+        applies to both at the same time and the two paths cannot drift apart.
+        The release-only steps are `if: github.ref_name == 'main'`-gated within
+        the same job. Do not suggest splitting this into separate jobs (e.g. a
+        dedicated release job), which would duplicate the build/test steps and
+        require a second checkout.
+
 chat:
   auto_reply: true

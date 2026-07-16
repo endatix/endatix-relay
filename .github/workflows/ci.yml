@@ -44,7 +44,7 @@ jobs:
         uses: Infisical/secrets-action@03d3fa38607956c493f53c6633f94006a13c47ae # v1.0.7
         with:
           method: "oidc"
-          env-slug: "dev"
+          env-slug: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
           project-slug: "github-actions-for-endatix"
           identity-id: "403af1ed-7046-480f-a100-c4482b8a89ac"
           recursive: true
@@ -124,6 +124,7 @@ jobs:
       
           # Get a short-lived NuGet API key
       - name: NuGet login (OIDC → temp API key)
+        if: github.ref_name == 'main'
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         id: login
         with:
