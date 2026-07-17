@@ -1,3 +1,6 @@
+[![Quality gate status](https://sonarcloud.io/api/project_badges/measure?project=endatix_endatix-relay&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=endatix_endatix-relay)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=endatix_endatix-relay&metric=coverage)](https://sonarcloud.io/summary/new_code?id=endatix_endatix-relay)
+
 # Endatix.Outbox.Engine
 
 Endatix-agnostic **transactional-outbox relay engine**. This is the foundational package depended on by
