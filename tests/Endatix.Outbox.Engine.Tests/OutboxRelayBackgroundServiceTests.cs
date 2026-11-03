@@ -171,11 +171,18 @@ public class OutboxRelayBackgroundServiceTests
     [Fact]
     public async Task Start_and_stop_are_logged_with_the_instance()
     {
-        GateReturns(false);
+        // ExecuteAsync runs on a background thread: stop only once the loop has polled the gate.
+        var polled = new TaskCompletionSource();
+        _gate.IsRelayEnabledAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            polled.TrySetResult();
+            return false;
+        });
         var logger = new RecordingLogger<OutboxRelayBackgroundService>();
         var (relay, _) = Build(logger: logger);
 
         await relay.StartAsync(CancellationToken.None);
+        await polled.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await relay.StopAsync(CancellationToken.None);
 
         Assert.StartsWith("Outbox relay started (instance ", logger.Messages[0]);
