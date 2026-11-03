@@ -11,10 +11,7 @@ public sealed class SqlServerClaimStoreTests(SqlServerFixture fixture)
         await using var store = new SqlServerOutboxTestStore(fixture.ConnectionString);
         await store.CreateTableAsync();
         await store.InsertAsync(1);
-        var iterations = DueNowGiveBack.Iterations;
 
-        var missed = await DueNowGiveBack.CountMissedReclaimsAsync(store.ClaimStore, 1, iterations);
-
-        Assert.True(missed == 0, $"{missed}/{iterations} reclaims came back empty.");
+        await DueNowGiveBack.AssertEveryReclaimSucceedsAsync(store.ClaimStore, 1);
     }
 }

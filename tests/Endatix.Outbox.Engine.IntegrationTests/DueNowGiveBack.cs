@@ -10,37 +10,62 @@ internal static class DueNowGiveBack
     // 200 rounds catch it. Set OUTBOX_DUE_NOW_ITERATIONS for a longer proof run.
     private const int DefaultIterations = 200;
 
-    public static int Iterations =>
+    private static int Iterations =>
         int.TryParse(Environment.GetEnvironmentVariable("OUTBOX_DUE_NOW_ITERATIONS"), out var n) && n > 0
             ? n
             : DefaultIterations;
 
-    public static async Task<int> CountMissedReclaimsAsync(SqlOutboxClaimStore store, long id, int iterations)
-    {
-        const string instance = "instance-A";
-        var lease = TimeSpan.FromMinutes(1);
-        var missed = 0;
+    private const string Instance = "instance-A";
+    private static readonly TimeSpan Lease = TimeSpan.FromMinutes(1);
 
-        var claimed = await store.ClaimBatchAsync(instance, lease, 1, CancellationToken.None);
+    // Far above datetime's 1/300 s rounding: a message still unclaimable after this is lost, not late.
+    private static readonly TimeSpan MaxWait = TimeSpan.FromSeconds(1);
+
+    public static async Task AssertEveryReclaimSucceedsAsync(SqlOutboxClaimStore store, long id)
+    {
+        var iterations = Iterations;
+
+        var missed = await CountMissedReclaimsAsync(store, id, iterations);
+
+        Assert.True(missed == 0, $"{missed}/{iterations} reclaims came back empty.");
+    }
+
+    private static async Task<int> CountMissedReclaimsAsync(SqlOutboxClaimStore store, long id, int iterations)
+    {
+        var missed = 0;
+        var claimed = await ClaimAsync(store);
         Assert.Equal([id], claimed.Select(m => m.Id));
 
         for (var i = 0; i < iterations; i++)
         {
-            await store.RescheduleAsync(claimed[0], DateTimeOffset.UtcNow, instance, CancellationToken.None);
-            claimed = await store.ClaimBatchAsync(instance, lease, 1, CancellationToken.None);
+            await store.RescheduleAsync(claimed[0], DateTimeOffset.UtcNow, Instance, CancellationToken.None);
+            claimed = await ClaimAsync(store);
             if (claimed.Count == 0)
             {
                 missed++;
-                // Wait out the rounding so the next round starts from a claimed message.
-                do
-                {
-                    await Task.Delay(5);
-                    claimed = await store.ClaimBatchAsync(instance, lease, 1, CancellationToken.None);
-                }
-                while (claimed.Count == 0);
+                claimed = await WaitForClaimAsync(store, round: i);
             }
         }
 
         return missed;
+    }
+
+    private static Task<IReadOnlyList<IOutboxMessage>> ClaimAsync(SqlOutboxClaimStore store) =>
+        store.ClaimBatchAsync(Instance, Lease, 1, CancellationToken.None);
+
+    // Waits out the rounding so the next round starts from a claimed message.
+    private static async Task<IReadOnlyList<IOutboxMessage>> WaitForClaimAsync(SqlOutboxClaimStore store, int round)
+    {
+        var deadline = DateTime.UtcNow + MaxWait;
+        IReadOnlyList<IOutboxMessage> claimed;
+        do
+        {
+            Assert.True(DateTime.UtcNow < deadline, $"Round {round}: the message given back was not claimable within {MaxWait}.");
+            await Task.Delay(5);
+            claimed = await ClaimAsync(store);
+        }
+        while (claimed.Count == 0);
+
+        return claimed;
     }
 }

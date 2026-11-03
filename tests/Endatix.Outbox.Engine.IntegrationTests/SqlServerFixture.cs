@@ -8,7 +8,7 @@ namespace Endatix.Outbox.Engine.IntegrationTests;
 /// </summary>
 public sealed class SqlServerFixture : IAsyncLifetime
 {
-    private readonly MsSqlContainer _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest")
+    private readonly MsSqlContainer _container = new MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-CU21-ubuntu-22.04")
         .Build();
 
     public string ConnectionString => _container.GetConnectionString();

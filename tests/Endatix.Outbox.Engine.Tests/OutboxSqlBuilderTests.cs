@@ -1,3 +1,4 @@
+using System.Data;
 using Endatix.Outbox.Engine;
 
 namespace Endatix.Outbox.Engine.Tests;
@@ -30,6 +31,22 @@ public class OutboxSqlBuilderTests
         Assert.Contains("FROM [OutboxMessages] o WITH (READPAST, UPDLOCK, ROWLOCK)", sql);
         Assert.DoesNotContain("o WITH (READPAST, UPDLOCK, ROWLOCK) SET", sql);
         Assert.Contains("CAST(inserted.[Payload] AS nvarchar(max))", sql); // json read as text, provider-agnostic
+    }
+
+    [Fact]
+    public void SqlServer_binds_timestamps_as_datetime2()
+    {
+        var builder = new OutboxSqlBuilder(OutboxSqlDialect.SqlServer, "OutboxMessages");
+
+        Assert.Equal(DbType.DateTime2, builder.TimestampDbType);
+    }
+
+    [Fact]
+    public void Postgres_keeps_the_provider_timestamp_inference()
+    {
+        var builder = new OutboxSqlBuilder(OutboxSqlDialect.PostgreSql, "OutboxMessages");
+
+        Assert.Null(builder.TimestampDbType);
     }
 
     [Theory]

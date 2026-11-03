@@ -180,10 +180,7 @@ public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
     {
         await using var store = await NewStoreAsync();
         await store.InsertAsync(1);
-        var iterations = DueNowGiveBack.Iterations;
 
-        var missed = await DueNowGiveBack.CountMissedReclaimsAsync(store.ClaimStore, 1, iterations);
-
-        Assert.True(missed == 0, $"{missed}/{iterations} reclaims came back empty.");
+        await DueNowGiveBack.AssertEveryReclaimSucceedsAsync(store.ClaimStore, 1);
     }
 }

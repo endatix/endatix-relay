@@ -1,3 +1,5 @@
+using System.Data;
+
 namespace Endatix.Outbox.Engine;
 
 /// <summary>
@@ -27,11 +29,20 @@ internal sealed class OutboxSqlBuilder
 
         _dialect = dialect;
         _table = QuoteQualified(tableName);
+        TimestampDbType = dialect == OutboxSqlDialect.SqlServer ? DbType.DateTime2 : null;
         ClaimSql = BuildClaimSql();
         MarkSentSql = BuildMarkSentSql();
         RescheduleSql = BuildRescheduleSql();
         MarkFailedSql = BuildMarkFailedSql();
     }
+
+    /// <summary>
+    /// The type to bind timestamp parameters as, or <c>null</c> to keep the provider's inference. SQL Server
+    /// needs <c>datetime2</c>: SqlClient sends an untyped DateTime as <c>datetime</c> (1/300 s), which rounds
+    /// up when stored, so a row given back "due now" can look later than the next claim's <c>@now</c>.
+    /// PostgreSQL keeps Npgsql's inference, where DateTime2 would mean <c>timestamp without time zone</c>.
+    /// </summary>
+    public DbType? TimestampDbType { get; }
 
     /// <summary>Claims a batch (skip-locked + lease) and returns the projected rows.</summary>
     public string ClaimSql { get; }
