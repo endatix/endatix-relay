@@ -174,4 +174,16 @@ public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
         Assert.Equal(new DateTimeOffset(occurredAt), claimed[0].OccurredAt);
         Assert.Equal(TimeSpan.Zero, claimed[0].OccurredAt.Offset);
     }
+
+    [Fact]
+    public async Task Message_given_back_due_now_is_reclaimed_at_once()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1);
+        var iterations = DueNowGiveBack.Iterations;
+
+        var missed = await DueNowGiveBack.CountMissedReclaimsAsync(store.ClaimStore, 1, iterations);
+
+        Assert.True(missed == 0, $"{missed}/{iterations} reclaims came back empty.");
+    }
 }

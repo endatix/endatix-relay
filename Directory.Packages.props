@@ -27,5 +27,7 @@
         <!-- Integration-test-only (real-DB suite via Testcontainers) -->
         <PackageVersion Include="Testcontainers.PostgreSql" Version="4.12.0" />
         <PackageVersion Include="Npgsql" Version="10.0.3" />
+        <PackageVersion Include="Testcontainers.MsSql" Version="4.12.0" />
+        <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.0.2" />
     </ItemGroup>
 </Project>
