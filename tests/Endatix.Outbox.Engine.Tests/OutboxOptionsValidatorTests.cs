@@ -17,20 +17,22 @@ public class OutboxOptionsValidatorTests
         Assert.True(Validate(_ => { }));
     }
 
-    public static TheoryData<string, Action<OutboxOptions>> NonPositiveKnobs() => new()
+    private static readonly Dictionary<string, Action<OutboxOptions>> NonPositiveMutations = new()
     {
-        { "PollIntervalSeconds", o => o.PollIntervalSeconds = 0 },
-        { "BatchSize", o => o.BatchSize = 0 },
-        { "LeaseSeconds", o => o.LeaseSeconds = -1 },
-        { "MaxAttempts", o => o.MaxAttempts = 0 },
-        { "BackoffBaseSeconds", o => o.BackoffBaseSeconds = -5 },
+        [nameof(OutboxOptions.PollIntervalSeconds)] = o => o.PollIntervalSeconds = 0,
+        [nameof(OutboxOptions.BatchSize)] = o => o.BatchSize = 0,
+        [nameof(OutboxOptions.LeaseSeconds)] = o => o.LeaseSeconds = -1,
+        [nameof(OutboxOptions.MaxAttempts)] = o => o.MaxAttempts = 0,
+        [nameof(OutboxOptions.BackoffBaseSeconds)] = o => o.BackoffBaseSeconds = -5,
     };
+
+    public static TheoryData<string> NonPositiveKnobs() => new(NonPositiveMutations.Keys);
 
     [Theory]
     [MemberData(nameof(NonPositiveKnobs))]
-    public void Nonpositive_tuning_value_fails(string knob, Action<OutboxOptions> mutate)
+    public void Nonpositive_tuning_value_fails(string knob)
     {
-        Assert.False(Validate(mutate), $"Expected validation to fail for non-positive {knob}.");
+        Assert.False(Validate(NonPositiveMutations[knob]), $"Expected validation to fail for non-positive {knob}.");
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using Endatix.Outbox.Engine;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -12,7 +13,8 @@ public class OutboxRelayBackgroundServiceTests
     private readonly IIntegrationEventPublisher _publisher = Substitute.For<IIntegrationEventPublisher>();
     private readonly IOutboxRelayGate _gate = Substitute.For<IOutboxRelayGate>();
 
-    private (OutboxRelayBackgroundService relay, IServiceProvider services) Build(OutboxOptions? options = null)
+    private (OutboxRelayBackgroundService relay, IServiceProvider services) Build(
+        OutboxOptions? options = null, ILogger<OutboxRelayBackgroundService>? logger = null)
     {
         var services = new ServiceCollection()
             .AddSingleton(_claimStore)
@@ -23,7 +25,7 @@ public class OutboxRelayBackgroundServiceTests
         var relay = new OutboxRelayBackgroundService(
             services.GetRequiredService<IServiceScopeFactory>(),
             Options.Create(options ?? new OutboxOptions()),
-            NullLogger<OutboxRelayBackgroundService>.Instance);
+            logger ?? NullLogger<OutboxRelayBackgroundService>.Instance);
 
         return (relay, services);
     }
@@ -143,6 +145,41 @@ public class OutboxRelayBackgroundServiceTests
         // ...and a MarkSent failure is never rerouted to reschedule/dead-letter.
         await _claimStore.DidNotReceive().RescheduleAsync(m1, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().MarkFailedAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Gate_changes_are_logged_once_per_transition()
+    {
+        GateReturns(true, true, false);
+        ClaimReturns();
+        var logger = new RecordingLogger<OutboxRelayBackgroundService>();
+        var (relay, services) = Build(logger: logger);
+
+        for (var tick = 0; tick < 3; tick++)
+        {
+            await relay.ProcessOnceAsync(services, CancellationToken.None);
+        }
+
+        Assert.Equal(
+            [
+                $"Outbox relay enabled (flag '{OutboxFlags.RelayInProcess}').",
+                $"Outbox relay disabled (flag '{OutboxFlags.RelayInProcess}').",
+            ],
+            logger.Messages);
+    }
+
+    [Fact]
+    public async Task Start_and_stop_are_logged_with_the_instance()
+    {
+        GateReturns(false);
+        var logger = new RecordingLogger<OutboxRelayBackgroundService>();
+        var (relay, _) = Build(logger: logger);
+
+        await relay.StartAsync(CancellationToken.None);
+        await relay.StopAsync(CancellationToken.None);
+
+        Assert.StartsWith("Outbox relay started (instance ", logger.Messages[0]);
+        Assert.StartsWith("Outbox relay stopping (instance ", logger.Messages[^1]);
     }
 
     [Fact]
