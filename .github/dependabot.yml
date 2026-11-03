@@ -1,0 +1,60 @@
+version: 2
+updates:
+  # "/" covers .github/workflows; composite actions are not scanned unless listed
+  # (this repo has none under .github/actions yet).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Sofia
+    cooldown:
+      default-days: 2
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
+      github-actions:
+        applies-to: version-updates
+        patterns: ["*"]
+
+  # NuGet via Central Package Management (Directory.Packages.props at repo root).
+  # No NuGet.config: everything restores from nuget.org, so no registry is needed.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Sofia
+    open-pull-requests-limit: 5
+    # Hold version updates for two days so a release that gets yanked or
+    # compromised soon after publishing is never proposed (security updates skip this).
+    cooldown:
+      default-days: 2
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      microsoft-runtime:
+        applies-to: version-updates
+        # Majors (a new .NET) come as their own PRs, not inside this group.
+        update-types: ["minor", "patch"]
+        patterns:
+          - "Microsoft.*"
+          - "System.*"
+      test-deps:
+        applies-to: version-updates
+        patterns:
+          - "xunit*"
+          - "NSubstitute*"
+          - "Testcontainers*"
+          - "coverlet*"
+      # One PR for all open NuGet security fixes (version groups must not swallow these).
+      nuget-security:
+        applies-to: security-updates
+        patterns: ["*"]
