@@ -17,14 +17,14 @@ public class OutboxOptionsValidatorTests
         Assert.True(Validate(_ => { }));
     }
 
-    public static IEnumerable<object[]> NonPositiveKnobs() =>
-    [
-        ["PollIntervalSeconds", (Action<OutboxOptions>)(o => o.PollIntervalSeconds = 0)],
-        ["BatchSize", (Action<OutboxOptions>)(o => o.BatchSize = 0)],
-        ["LeaseSeconds", (Action<OutboxOptions>)(o => o.LeaseSeconds = -1)],
-        ["MaxAttempts", (Action<OutboxOptions>)(o => o.MaxAttempts = 0)],
-        ["BackoffBaseSeconds", (Action<OutboxOptions>)(o => o.BackoffBaseSeconds = -5)],
-    ];
+    public static TheoryData<string, Action<OutboxOptions>> NonPositiveKnobs() => new()
+    {
+        { "PollIntervalSeconds", o => o.PollIntervalSeconds = 0 },
+        { "BatchSize", o => o.BatchSize = 0 },
+        { "LeaseSeconds", o => o.LeaseSeconds = -1 },
+        { "MaxAttempts", o => o.MaxAttempts = 0 },
+        { "BackoffBaseSeconds", o => o.BackoffBaseSeconds = -5 },
+    };
 
     [Theory]
     [MemberData(nameof(NonPositiveKnobs))]

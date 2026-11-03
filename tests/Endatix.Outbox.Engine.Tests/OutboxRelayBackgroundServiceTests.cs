@@ -131,8 +131,10 @@ public class OutboxRelayBackgroundServiceTests
         var (relay, services) = Build(new OutboxOptions { MaxAttempts = 1 }); // would dead-letter if misrouted
 
         // The mark failure propagates, ending the tick (the ExecuteAsync loop logs + retries next poll).
-        await Assert.ThrowsAsync<InvalidOperationException>(
+        var aborted = await Assert.ThrowsAsync<InvalidOperationException>(
             () => relay.ProcessOnceAsync(services, CancellationToken.None));
+        Assert.Equal("mark boom", aborted.InnerException?.Message);
+        Assert.Contains("MarkSent failed", aborted.Message);
 
         await _publisher.Received(1).PublishAsync(m1, Arg.Any<CancellationToken>());
         await _claimStore.Received(1).MarkSentAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -165,7 +167,9 @@ public class OutboxRelayBackgroundServiceTests
             .AddSingleton(_publisher)
             .BuildServiceProvider();
 
-        OutboxRelayBackgroundService.EnsureRequiredServices(services); // no throw
+        var exception = Record.Exception(() => OutboxRelayBackgroundService.EnsureRequiredServices(services));
+
+        Assert.Null(exception);
     }
 
     [Theory]
