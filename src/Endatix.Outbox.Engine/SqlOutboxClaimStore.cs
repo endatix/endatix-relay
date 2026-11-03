@@ -1,3 +1,4 @@
+using System.Data;
 using System.Data.Common;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -15,6 +16,7 @@ namespace Endatix.Outbox.Engine;
 public sealed class SqlOutboxClaimStore : IOutboxClaimStore
 {
     private readonly IOutboxConnectionFactory _connectionFactory;
+    private readonly OutboxSqlDialect _dialect;
     private readonly OutboxSqlBuilder _sql;
     private readonly ILogger<SqlOutboxClaimStore> _logger;
 
@@ -27,6 +29,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
         _connectionFactory = connectionFactory;
         _logger = logger;
         var opts = options.Value;
+        _dialect = opts.Dialect;
         _sql = new OutboxSqlBuilder(opts.Dialect, opts.TableName);
     }
 
@@ -104,11 +107,19 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
         }
     }
 
-    private static void AddParameter(DbCommand command, string name, object value)
+    private void AddParameter(DbCommand command, string name, object value)
     {
         var parameter = command.CreateParameter();
         parameter.ParameterName = name;
         parameter.Value = NormalizeTimestamp(value);
+        // SqlClient sends an untyped DateTime as `datetime` (1/300 s). Stored into `datetime2` it rounds up,
+        // so a row given back "due now" can look later than the next claim's @now. Npgsql keeps its own
+        // inference: DbType.DateTime2 would mean `timestamp without time zone` there.
+        if (_dialect == OutboxSqlDialect.SqlServer && parameter.Value is DateTime)
+        {
+            parameter.DbType = DbType.DateTime2;
+        }
+
         command.Parameters.Add(parameter);
     }
 
