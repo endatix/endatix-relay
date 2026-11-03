@@ -120,7 +120,7 @@ internal sealed class OutboxTestStore : IAsyncDisposable
         {
             await ExecuteAsync($"DROP TABLE IF EXISTS \"{Table}\";");
         }
-        catch
+        catch (NpgsqlException)
         {
             // best-effort cleanup; the container is torn down with the collection anyway
         }

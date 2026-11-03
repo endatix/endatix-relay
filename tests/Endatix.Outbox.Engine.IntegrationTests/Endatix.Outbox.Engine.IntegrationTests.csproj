@@ -17,6 +17,7 @@
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Testcontainers.MsSql" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>

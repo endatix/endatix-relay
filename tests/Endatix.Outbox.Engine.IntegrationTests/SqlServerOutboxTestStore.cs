@@ -69,7 +69,7 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
         {
             await ExecuteAsync($"DROP TABLE IF EXISTS [{Table}];");
         }
-        catch
+        catch (SqlException)
         {
             // best-effort cleanup; the container is torn down with the collection anyway
         }
