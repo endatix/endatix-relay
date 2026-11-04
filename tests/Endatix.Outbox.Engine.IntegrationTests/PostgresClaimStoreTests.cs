@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Endatix.Outbox.Engine;
+using Microsoft.Extensions.Time.Testing;
 
 namespace Endatix.Outbox.Engine.IntegrationTests;
 
@@ -9,6 +10,7 @@ namespace Endatix.Outbox.Engine.IntegrationTests;
 /// DateTimeOffset persistence.
 /// </summary>
 [Trait("Category", "Integration")]
+[Trait("Provider", "PostgreSql")]
 [Collection(PostgresCollection.Name)]
 public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
 {
@@ -173,5 +175,16 @@ public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
 
         Assert.Equal(new DateTimeOffset(occurredAt), claimed[0].OccurredAt);
         Assert.Equal(TimeSpan.Zero, claimed[0].OccurredAt.Offset);
+    }
+
+    [Fact]
+    public async Task Message_given_back_at_now_is_reclaimed_once_the_clock_advances()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var store = new OutboxTestStore(fixture.ConnectionString, clock);
+        await store.CreateTableAsync();
+        await store.InsertAsync(1);
+
+        await GiveBackAtNow.AssertReclaimedAfterAdvanceAsync(store.ClaimStore, clock, 1);
     }
 }

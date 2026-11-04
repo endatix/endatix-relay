@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Endatix.Outbox.Engine;
@@ -31,8 +32,53 @@ public static class OutboxRelayServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<OutboxOptions>, OutboxOptionsValidator>());
 
         services.TryAddScoped<IOutboxRelayGate, OpenFeatureOutboxRelayGate>();
-        services.AddHostedService<OutboxRelayBackgroundService>();
+        services.TryAddSingleton(OutboxClock.System);
+        services.TryAddSingleton<OutboxRelaySignal>();
+        services.TryAddSingleton<IOutboxRelaySignal>(sp => sp.GetRequiredService<OutboxRelaySignal>());
 
+        // Built by hand so the relay always gets the engine clock, never a TimeProvider the host registered.
+        services.AddHostedService(sp => new OutboxRelayBackgroundService(
+            sp.GetRequiredService<IServiceScopeFactory>(),
+            sp.GetRequiredService<IOptions<OutboxOptions>>(),
+            sp.GetRequiredService<ILogger<OutboxRelayBackgroundService>>(),
+            sp.GetRequiredService<OutboxClock>().Provider,
+            sp.GetRequiredService<OutboxRelaySignal>(),
+            sp.GetService<OutboxPollInterval>()?.Value));
+
+        return services;
+    }
+
+    /// <summary>
+    /// Replaces the engine's clock, which defaults to <see cref="TimeProvider.System"/>. Meant for tests: with a
+    /// fake clock, advancing it runs the next poll and moves the claim, lease, and backoff times. The relay
+    /// logs a warning at startup when it runs on any other clock.
+    /// </summary>
+    /// <remarks>
+    /// Only this call changes the engine's clock; a <see cref="TimeProvider"/> registered in DI for other
+    /// reasons doesn't. Never let the engine's clock run behind the clock the host writes
+    /// <c>NextAttemptAt</c> with, or due messages look like they're in the future: use the same clock for
+    /// both, or only move the engine's forward. A clock that runs ahead claims early and treats other
+    /// instances' leases as expired.
+    /// </remarks>
+    public static IServiceCollection UseOutboxClock(this IServiceCollection services, TimeProvider clock)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        services.RemoveAll<OutboxClock>();
+        services.AddSingleton(new OutboxClock(clock));
+        return services;
+    }
+
+    /// <summary>
+    /// Sets the relay's poll interval in code, down to 10 ms. Meant for tests; the relay logs a warning at
+    /// startup when the interval is under a second. It wins over <see cref="OutboxOptions.PollIntervalSeconds"/>,
+    /// and no configuration key can reach it, so production settings can't poll faster than once a second.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="interval"/> is under 10 ms.</exception>
+    public static IServiceCollection UseOutboxPollInterval(this IServiceCollection services, TimeSpan interval)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(interval, OutboxPollInterval.Minimum);
+        services.RemoveAll<OutboxPollInterval>();
+        services.AddSingleton(new OutboxPollInterval(interval));
         return services;
     }
 
@@ -86,7 +132,13 @@ public static class OutboxRelayServiceCollectionExtensions
         // — a singleton would pin the root container and break any host factory that resolves scoped services.
         services.TryAddScoped<IOutboxConnectionFactory>(
             sp => new DelegateOutboxConnectionFactory(() => connectionFactory(sp)));
-        services.TryAddScoped<IOutboxClaimStore, SqlOutboxClaimStore>();
+        services.TryAddSingleton(OutboxClock.System);
+        // Built by hand so the store always gets the engine clock, never a TimeProvider the host registered.
+        services.TryAddScoped<IOutboxClaimStore>(sp => new SqlOutboxClaimStore(
+            sp.GetRequiredService<IOutboxConnectionFactory>(),
+            sp.GetRequiredService<IOptions<OutboxSqlOptions>>(),
+            sp.GetRequiredService<ILogger<SqlOutboxClaimStore>>(),
+            sp.GetRequiredService<OutboxClock>().Provider));
 
         return services;
     }

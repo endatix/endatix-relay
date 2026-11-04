@@ -18,13 +18,14 @@ internal sealed class OutboxTestStore : IAsyncDisposable
 
     public SqlOutboxClaimStore ClaimStore { get; }
 
-    public OutboxTestStore(string connectionString)
+    public OutboxTestStore(string connectionString, TimeProvider? clock = null)
     {
         _connectionString = connectionString;
         ClaimStore = new SqlOutboxClaimStore(
             new DelegateOutboxConnectionFactory(() => new NpgsqlConnection(_connectionString)),
             Options.Create(new OutboxSqlOptions { Dialect = OutboxSqlDialect.PostgreSql, TableName = Table }),
-            NullLogger<SqlOutboxClaimStore>.Instance);
+            NullLogger<SqlOutboxClaimStore>.Instance,
+            clock ?? TimeProvider.System);
     }
 
     public async Task CreateTableAsync()
