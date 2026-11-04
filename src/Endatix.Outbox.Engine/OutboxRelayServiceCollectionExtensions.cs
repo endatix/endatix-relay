@@ -62,10 +62,17 @@ public static class OutboxRelayServiceCollectionExtensions
     /// startup when the interval is under a second. It wins over <see cref="OutboxOptions.PollIntervalSeconds"/>,
     /// and no configuration key can reach it, so production settings can't poll faster than once a second.
     /// </summary>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="interval"/> is under 10 ms.</exception>
+    /// <remarks>
+    /// The interval must be finite and at most <see cref="Task.Delay(TimeSpan)"/>'s maximum, about 49.7 days. A
+    /// test driven only by <see cref="IOutboxRelaySignal.Wake"/> can pass a long finite interval such as
+    /// <c>TimeSpan.FromDays(1)</c>.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="interval"/> is under 10 ms, over about 49.7 days, or <see cref="Timeout.InfiniteTimeSpan"/>.
+    /// </exception>
     public static IServiceCollection UseOutboxPollInterval(this IServiceCollection services, TimeSpan interval)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(interval, OutboxPollInterval.Minimum);
+        OutboxPollInterval.Validate(interval);
         services.RemoveAll<OutboxPollInterval>();
         services.AddSingleton(new OutboxPollInterval(interval));
         return services;

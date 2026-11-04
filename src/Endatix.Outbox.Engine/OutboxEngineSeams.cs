@@ -19,6 +19,25 @@ internal sealed record OutboxPollInterval(TimeSpan Value)
 {
     /// <summary>The smallest code-only interval. Speed comes from the clock and the wake, not a tighter loop.</summary>
     public static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(10);
+
+    /// <summary>The longest wait <see cref="Task.Delay(TimeSpan, TimeProvider, CancellationToken)"/> takes, about 49.7 days.</summary>
+    public static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
+    /// <summary>Rejects an interval the relay's wait can't take, before it can fault the relay at runtime.</summary>
+    public static void Validate(TimeSpan interval)
+    {
+        if (interval == Timeout.InfiniteTimeSpan)
+        {
+            throw new ArgumentOutOfRangeException(nameof(interval), interval,
+                $"The outbox poll interval can't be infinite. For a wake-driven test, pass a long finite interval such as TimeSpan.FromDays(1); it must be between {Minimum} (10 ms) and {Maximum}.");
+        }
+
+        if (interval < Minimum || interval > Maximum)
+        {
+            throw new ArgumentOutOfRangeException(nameof(interval), interval,
+                $"The outbox poll interval must be between {Minimum} (10 ms) and {Maximum} (Task.Delay's maximum, about 49.7 days).");
+        }
+    }
 }
 
 /// <summary>

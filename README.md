@@ -57,9 +57,10 @@ provider.GetRequiredService<IOutboxRelaySignal>().Wake();
   runs the next poll with no real wait. Only this call changes it: a `TimeProvider` the host registers in DI
   for other reasons doesn't, because a clock that runs ahead claims early and treats other instances'
   leases as expired.
-- **`UseOutboxPollInterval(TimeSpan)`** sets the interval in code, down to 10 ms. It wins over
-  `PollIntervalSeconds`. No configuration key, environment variables included, can set an interval under a
-  second.
+- **`UseOutboxPollInterval(TimeSpan)`** sets the interval in code, from 10 ms up to `Task.Delay`'s maximum
+  (about 49.7 days; `PollIntervalSeconds` has the same ceiling). It wins over `PollIntervalSeconds`. No
+  configuration key, environment variables included, can set an interval under a second. The interval must be
+  finite: a test driven only by `Wake()` can pass a long one such as `TimeSpan.FromDays(1)`.
 - **`IOutboxRelaySignal.Wake()`** ends the current wait, so the next poll runs at once. A wake that arrives
   during a poll is remembered: the next poll starts as soon as that one finishes, and several wakes during one
   poll cause one extra poll.

@@ -36,6 +36,20 @@ public class OutboxOptionsValidatorTests
     }
 
     [Fact]
+    public void PollIntervalSeconds_above_Task_Delay_maximum_fails()
+    {
+        // Task.Delay takes at most uint.MaxValue - 1 ms (~49.7 days); past it the relay's wait would throw.
+        Assert.False(Validate(o => o.PollIntervalSeconds = 4_294_968));
+        Assert.False(Validate(o => o.PollIntervalSeconds = int.MaxValue));
+    }
+
+    [Fact]
+    public void PollIntervalSeconds_at_Task_Delay_maximum_is_valid()
+    {
+        Assert.True(Validate(o => o.PollIntervalSeconds = 4_294_967));
+    }
+
+    [Fact]
     public void Backoff_cap_below_base_fails_the_cross_field_check()
     {
         var options = new OutboxOptions { BackoffBaseSeconds = 100, BackoffCapSeconds = 10 }; // both in range

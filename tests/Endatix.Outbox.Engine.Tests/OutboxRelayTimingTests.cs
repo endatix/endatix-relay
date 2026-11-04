@@ -13,6 +13,7 @@ namespace Endatix.Outbox.Engine.Tests;
 public sealed class OutboxRelayTimingTests : IAsyncDisposable
 {
     private static readonly TimeSpan Patience = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan TaskDelayMaximum = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
     private readonly IOutboxClaimStore _claimStore = Substitute.For<IOutboxClaimStore>();
     private readonly IIntegrationEventPublisher _publisher = Substitute.For<IIntegrationEventPublisher>();
@@ -131,6 +132,49 @@ public sealed class OutboxRelayTimingTests : IAsyncDisposable
 
         Assert.Throws<ArgumentOutOfRangeException>(
             () => services.UseOutboxPollInterval(TimeSpan.FromMilliseconds(milliseconds)));
+    }
+
+    [Fact]
+    public void Code_poll_interval_above_Task_Delay_maximum_is_rejected_naming_both_bounds()
+    {
+        var services = new ServiceCollection();
+        var tooLong = TaskDelayMaximum + TimeSpan.FromMilliseconds(1);
+
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => services.UseOutboxPollInterval(tooLong));
+
+        Assert.Contains("10 ms", ex.Message);
+        Assert.Contains(TaskDelayMaximum.ToString(), ex.Message);
+    }
+
+    [Fact]
+    public void Code_poll_interval_of_60_days_is_rejected()
+    {
+        var services = new ServiceCollection();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() => services.UseOutboxPollInterval(TimeSpan.FromDays(60)));
+    }
+
+    [Fact]
+    public void Infinite_code_poll_interval_is_rejected_with_its_own_message()
+    {
+        var services = new ServiceCollection();
+
+        var ex = Assert.Throws<ArgumentOutOfRangeException>(() => services.UseOutboxPollInterval(Timeout.InfiniteTimeSpan));
+
+        Assert.Contains("infinite", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("under 10 ms", ex.Message);
+    }
+
+    [Fact]
+    public async Task Code_poll_interval_at_the_maximum_runs_the_relay_without_faulting()
+    {
+        var (relay, _) = Build(s => s.UseOutboxPollInterval(TaskDelayMaximum));
+
+        await relay.StartAsync(CancellationToken.None);
+        await _claims.WaitForAsync(1, Patience);
+        await Task.Delay(50);
+        Assert.False(relay.ExecuteTask!.IsFaulted, relay.ExecuteTask.Exception?.ToString());
+        await relay.StopAsync(CancellationToken.None);
     }
 
     [Fact]
