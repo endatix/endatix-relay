@@ -1,41 +1,38 @@
 namespace Endatix.Outbox.Engine;
 
 /// <summary>
-/// The engine's own clock. Registered by the engine with <see cref="TimeProvider.System"/>; only
-/// <c>UseOutboxClock</c> replaces it, so a <see cref="TimeProvider"/> the host registers for other reasons
-/// doesn't reach the relay.
+/// The engine's clock and code-only poll interval, set only by <c>UseOutboxClock</c> and
+/// <c>UseOutboxPollInterval</c> through <c>services.Configure</c>. Internal, so no host binds it from
+/// configuration: no config key can set an interval under a second, and a <see cref="TimeProvider"/> the host
+/// registers in DI for other reasons doesn't reach the relay.
 /// </summary>
-internal sealed record OutboxClock(TimeProvider Provider)
-{
-    public static OutboxClock System { get; } = new(TimeProvider.System);
-}
-
-/// <summary>
-/// A poll interval set in code by <c>UseOutboxPollInterval</c>. A separate type, so the configuration binder
-/// never sees it: no config key can set an interval under a second. When present, it wins over
-/// <see cref="OutboxOptions.PollIntervalSeconds"/>.
-/// </summary>
-internal sealed record OutboxPollInterval(TimeSpan Value)
+internal sealed class OutboxTimingOptions
 {
     /// <summary>The smallest code-only interval. Speed comes from the clock and the wake, not a tighter loop.</summary>
-    public static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(10);
+    public static readonly TimeSpan MinimumPollInterval = TimeSpan.FromMilliseconds(10);
 
     /// <summary>The longest wait <see cref="Task.Delay(TimeSpan, TimeProvider, CancellationToken)"/> takes, about 49.7 days.</summary>
-    public static readonly TimeSpan Maximum = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+    public static readonly TimeSpan MaximumPollInterval = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
+
+    /// <summary>The engine's clock; <see cref="TimeProvider.System"/> unless <c>UseOutboxClock</c> set one.</summary>
+    public TimeProvider Clock { get; set; } = TimeProvider.System;
+
+    /// <summary>The code-only poll interval; when set, it wins over <see cref="OutboxOptions.PollIntervalSeconds"/>.</summary>
+    public TimeSpan? PollInterval { get; set; }
 
     /// <summary>Rejects an interval the relay's wait can't take, before it can fault the relay at runtime.</summary>
-    public static void Validate(TimeSpan interval)
+    public static void ValidatePollInterval(TimeSpan interval)
     {
         if (interval == Timeout.InfiniteTimeSpan)
         {
             throw new ArgumentOutOfRangeException(nameof(interval), interval,
-                $"The outbox poll interval can't be infinite. For a wake-driven test, pass a long finite interval such as TimeSpan.FromDays(1); it must be between {Minimum} (10 ms) and {Maximum}.");
+                $"The outbox poll interval can't be infinite. For a wake-driven test, pass a long finite interval such as TimeSpan.FromDays(1); it must be between {MinimumPollInterval} (10 ms) and {MaximumPollInterval}.");
         }
 
-        if (interval < Minimum || interval > Maximum)
+        if (interval < MinimumPollInterval || interval > MaximumPollInterval)
         {
             throw new ArgumentOutOfRangeException(nameof(interval), interval,
-                $"The outbox poll interval must be between {Minimum} (10 ms) and {Maximum} (Task.Delay's maximum, about 49.7 days).");
+                $"The outbox poll interval must be between {MinimumPollInterval} (10 ms) and {MaximumPollInterval} (Task.Delay's maximum, about 49.7 days).");
         }
     }
 }
@@ -48,11 +45,11 @@ internal sealed record OutboxPollInterval(TimeSpan Value)
 /// </summary>
 public sealed class OutboxTiming
 {
-    internal OutboxTiming(TimeProvider clock, OutboxRelaySignal signal, TimeSpan? pollInterval)
+    internal OutboxTiming(OutboxTimingOptions options, OutboxRelaySignal signal)
     {
-        Clock = clock;
+        Clock = options.Clock;
         Signal = signal;
-        PollInterval = pollInterval;
+        PollInterval = options.PollInterval;
     }
 
     internal TimeProvider Clock { get; }

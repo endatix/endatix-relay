@@ -40,7 +40,7 @@ public class OutboxRelayBackgroundService : BackgroundService
         IServiceScopeFactory scopeFactory,
         IOptions<OutboxOptions> options,
         ILogger<OutboxRelayBackgroundService> logger)
-        : this(scopeFactory, options, logger, new OutboxTiming(TimeProvider.System, new OutboxRelaySignal(), pollInterval: null))
+        : this(scopeFactory, options, logger, new OutboxTiming(new OutboxTimingOptions(), new OutboxRelaySignal()))
     {
     }
 

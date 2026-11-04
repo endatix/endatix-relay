@@ -52,8 +52,7 @@ public static class OutboxRelayServiceCollectionExtensions
     public static IServiceCollection UseOutboxClock(this IServiceCollection services, TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(clock);
-        services.RemoveAll<OutboxClock>();
-        services.AddSingleton(new OutboxClock(clock));
+        services.Configure<OutboxTimingOptions>(o => o.Clock = clock);
         return services;
     }
 
@@ -72,9 +71,8 @@ public static class OutboxRelayServiceCollectionExtensions
     /// </exception>
     public static IServiceCollection UseOutboxPollInterval(this IServiceCollection services, TimeSpan interval)
     {
-        OutboxPollInterval.Validate(interval);
-        services.RemoveAll<OutboxPollInterval>();
-        services.AddSingleton(new OutboxPollInterval(interval));
+        OutboxTimingOptions.ValidatePollInterval(interval);
+        services.Configure<OutboxTimingOptions>(o => o.PollInterval = interval);
         return services;
     }
 
@@ -134,16 +132,15 @@ public static class OutboxRelayServiceCollectionExtensions
         return services;
     }
 
-    // The clock and the code interval are read when OutboxTiming is first resolved, so UseOutboxClock and
-    // UseOutboxPollInterval work before or after AddOutboxRelay.
+    // OutboxTimingOptions is read when OutboxTiming is first resolved, so UseOutboxClock and
+    // UseOutboxPollInterval work before or after AddOutboxRelay, and the last call wins.
     private static void AddTiming(IServiceCollection services)
     {
-        services.TryAddSingleton(OutboxClock.System);
+        services.AddOptions<OutboxTimingOptions>();
         services.TryAddSingleton<OutboxRelaySignal>();
         services.TryAddSingleton<IOutboxRelaySignal>(sp => sp.GetRequiredService<OutboxRelaySignal>());
         services.TryAddSingleton(sp => new OutboxTiming(
-            sp.GetRequiredService<OutboxClock>().Provider,
-            sp.GetRequiredService<OutboxRelaySignal>(),
-            sp.GetService<OutboxPollInterval>()?.Value));
+            sp.GetRequiredService<IOptions<OutboxTimingOptions>>().Value,
+            sp.GetRequiredService<OutboxRelaySignal>()));
     }
 }
