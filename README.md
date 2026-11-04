@@ -68,9 +68,9 @@ provider.GetRequiredService<IOutboxRelaySignal>().Wake();
 the engine's clock is behind it, due messages look like they're in the future. Use the same clock for both,
 or only move the engine's forward.
 
-**SQL Server rounds timestamps to 1/300 s.** The claim store binds timestamps as `datetime`, so a message
-given back at a fake instant off that grid can be stored a little later than the instant. Advance the clock
-between a give-back and the next claim, as the integration suite does, rather than claiming at the same
+**SQL Server rounds timestamps to 1/300 s.** The claim store binds timestamps as `datetime`, so a message's
+stored `NextAttemptAt` and a claim's "now" for the same instant don't reliably compare as equal. Advance the
+clock between a give-back and the next claim, as the integration suite does, rather than claiming at the same
 instant.
 
 ## Dependencies

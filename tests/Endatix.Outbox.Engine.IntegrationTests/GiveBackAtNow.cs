@@ -8,9 +8,9 @@ namespace Endatix.Outbox.Engine.IntegrationTests;
 /// </summary>
 /// <remarks>
 /// The advance is needed on SQL Server. Its timestamps are bound as <c>datetime</c>, rounded to 1/300 s, so a
-/// message given back at an instant off that grid is stored up to ~3 ms later than the instant itself. A claim
-/// at the very same fake instant would then miss it, by design: production polls seconds apart, so the
-/// engine doesn't bind <c>datetime2</c> (endatix-relay#16, D10).
+/// message's stored <c>NextAttemptAt</c> and the claim's <c>@now</c> for the same instant don't reliably compare
+/// as equal: without the advance, about 2 claims in 5 missed it. That's by design. Production polls
+/// seconds apart, so the engine doesn't bind <c>datetime2</c> (endatix-relay#16, D10).
 /// </remarks>
 internal static class GiveBackAtNow
 {

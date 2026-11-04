@@ -32,10 +32,21 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     }
 
     /// <summary>
-    /// Creates the claim store on the given clock, which sets the claim's "now", the lease, and the sent and
-    /// failed times. <c>AddSqlOutboxClaimStore</c> passes the engine clock (see <c>UseOutboxClock</c>).
+    /// Creates the claim store on the engine's clock, which sets the claim's "now", the lease, and the sent and
+    /// failed times. DI uses this one once <c>AddSqlOutboxClaimStore</c> or <c>AddOutboxRelay</c> has
+    /// registered <see cref="OutboxTiming"/> (see <c>UseOutboxClock</c>).
     /// </summary>
     public SqlOutboxClaimStore(
+        IOutboxConnectionFactory connectionFactory,
+        IOptions<OutboxSqlOptions> options,
+        ILogger<SqlOutboxClaimStore> logger,
+        OutboxTiming timing)
+        : this(connectionFactory, options, logger, timing.Clock)
+    {
+    }
+
+    // Internal so DI never fills it with a host's own TimeProvider; tests pass a clock directly.
+    internal SqlOutboxClaimStore(
         IOutboxConnectionFactory connectionFactory,
         IOptions<OutboxSqlOptions> options,
         ILogger<SqlOutboxClaimStore> logger,

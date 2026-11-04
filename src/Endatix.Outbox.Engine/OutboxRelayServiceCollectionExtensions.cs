@@ -1,7 +1,6 @@
 using System.Data.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace Endatix.Outbox.Engine;
@@ -32,18 +31,8 @@ public static class OutboxRelayServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<OutboxOptions>, OutboxOptionsValidator>());
 
         services.TryAddScoped<IOutboxRelayGate, OpenFeatureOutboxRelayGate>();
-        services.TryAddSingleton(OutboxClock.System);
-        services.TryAddSingleton<OutboxRelaySignal>();
-        services.TryAddSingleton<IOutboxRelaySignal>(sp => sp.GetRequiredService<OutboxRelaySignal>());
-
-        // Built by hand so the relay always gets the engine clock, never a TimeProvider the host registered.
-        services.AddHostedService(sp => new OutboxRelayBackgroundService(
-            sp.GetRequiredService<IServiceScopeFactory>(),
-            sp.GetRequiredService<IOptions<OutboxOptions>>(),
-            sp.GetRequiredService<ILogger<OutboxRelayBackgroundService>>(),
-            sp.GetRequiredService<OutboxClock>().Provider,
-            sp.GetRequiredService<OutboxRelaySignal>(),
-            sp.GetService<OutboxPollInterval>()?.Value));
+        AddTiming(services);
+        services.AddHostedService<OutboxRelayBackgroundService>();
 
         return services;
     }
@@ -132,14 +121,22 @@ public static class OutboxRelayServiceCollectionExtensions
         // — a singleton would pin the root container and break any host factory that resolves scoped services.
         services.TryAddScoped<IOutboxConnectionFactory>(
             sp => new DelegateOutboxConnectionFactory(() => connectionFactory(sp)));
-        services.TryAddSingleton(OutboxClock.System);
-        // Built by hand so the store always gets the engine clock, never a TimeProvider the host registered.
-        services.TryAddScoped<IOutboxClaimStore>(sp => new SqlOutboxClaimStore(
-            sp.GetRequiredService<IOutboxConnectionFactory>(),
-            sp.GetRequiredService<IOptions<OutboxSqlOptions>>(),
-            sp.GetRequiredService<ILogger<SqlOutboxClaimStore>>(),
-            sp.GetRequiredService<OutboxClock>().Provider));
+        AddTiming(services);
+        services.TryAddScoped<IOutboxClaimStore, SqlOutboxClaimStore>();
 
         return services;
+    }
+
+    // The clock and the code interval are read when OutboxTiming is first resolved, so UseOutboxClock and
+    // UseOutboxPollInterval work before or after AddOutboxRelay.
+    private static void AddTiming(IServiceCollection services)
+    {
+        services.TryAddSingleton(OutboxClock.System);
+        services.TryAddSingleton<OutboxRelaySignal>();
+        services.TryAddSingleton<IOutboxRelaySignal>(sp => sp.GetRequiredService<OutboxRelaySignal>());
+        services.TryAddSingleton(sp => new OutboxTiming(
+            sp.GetRequiredService<OutboxClock>().Provider,
+            sp.GetRequiredService<OutboxRelaySignal>(),
+            sp.GetService<OutboxPollInterval>()?.Value));
     }
 }

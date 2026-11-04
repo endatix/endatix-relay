@@ -56,6 +56,30 @@ public class OutboxClockRegistrationTests
     }
 
     [Fact]
+    public void Registrations_keep_their_implementation_types_so_hosts_can_detect_them()
+    {
+        var services = AddEngine(Services()).UseOutboxClock(_fake).UseOutboxPollInterval(TimeSpan.FromMilliseconds(50));
+
+        Assert.Contains(services, d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(OutboxRelayBackgroundService));
+        Assert.Contains(services, d => d.ServiceType == typeof(IOutboxClaimStore) && d.ImplementationType == typeof(SqlOutboxClaimStore));
+    }
+
+    [Fact]
+    public void A_store_the_host_registers_itself_does_not_take_the_hosts_TimeProvider()
+    {
+        var services = Services();
+        services.AddSingleton<TimeProvider>(_fake);
+        services.AddSingleton(Substitute.For<IOutboxConnectionFactory>());
+        services.Configure<OutboxSqlOptions>(_ => { });
+        services.AddScoped<IOutboxClaimStore, SqlOutboxClaimStore>();
+        using var provider = services.BuildServiceProvider();
+
+        var store = (SqlOutboxClaimStore)provider.CreateScope().ServiceProvider.GetRequiredService<IOutboxClaimStore>();
+
+        Assert.Same(TimeProvider.System, store.Clock);
+    }
+
+    [Fact]
     public void UseOutboxClock_replaces_the_clock_for_the_relay_and_the_claim_store()
     {
         var (relay, store) = Resolve(AddEngine(Services()).UseOutboxClock(_fake));

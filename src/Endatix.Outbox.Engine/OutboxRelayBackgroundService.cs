@@ -34,28 +34,27 @@ public class OutboxRelayBackgroundService : BackgroundService
         IServiceScopeFactory scopeFactory,
         IOptions<OutboxOptions> options,
         ILogger<OutboxRelayBackgroundService> logger)
-        : this(scopeFactory, options, logger, TimeProvider.System, new OutboxRelaySignal(), codePollInterval: null)
+        : this(scopeFactory, options, logger, new OutboxTiming(TimeProvider.System, new OutboxRelaySignal(), pollInterval: null))
     {
     }
 
     /// <summary>
-    /// Creates the relay on the engine clock, with the wake signal and the code-only poll interval, which wins
-    /// over <see cref="OutboxOptions.PollIntervalSeconds"/>. <c>AddOutboxRelay</c> uses this one.
+    /// Creates the relay on the engine's timing: its clock, its wake signal, and the code-only poll interval,
+    /// which wins over <see cref="OutboxOptions.PollIntervalSeconds"/>. DI uses this one once
+    /// <c>AddOutboxRelay</c> has registered <see cref="OutboxTiming"/>.
     /// </summary>
-    internal OutboxRelayBackgroundService(
+    public OutboxRelayBackgroundService(
         IServiceScopeFactory scopeFactory,
         IOptions<OutboxOptions> options,
         ILogger<OutboxRelayBackgroundService> logger,
-        TimeProvider clock,
-        OutboxRelaySignal signal,
-        TimeSpan? codePollInterval)
+        OutboxTiming timing)
     {
         _scopeFactory = scopeFactory;
         _options = options.Value;
         _logger = logger;
-        _signal = signal;
-        Clock = clock;
-        PollInterval = codePollInterval ?? _options.PollInterval;
+        _signal = timing.Signal;
+        Clock = timing.Clock;
+        PollInterval = timing.PollInterval ?? _options.PollInterval;
     }
 
     /// <summary>The clock the relay waits on and computes backoff from.</summary>
@@ -210,7 +209,7 @@ public class OutboxRelayBackgroundService : BackgroundService
         if (Clock != TimeProvider.System)
         {
             _logger.LogWarning(
-                "Outbox relay runs on the clock {ClockType}, not TimeProvider.System. This is meant for tests: a clock that runs ahead claims early and treats other instances' leases as expired.",
+                "Outbox relay runs on the clock {ClockType}, not TimeProvider.System. This is meant for tests: if it runs ahead of real time, the relay claims early and treats other instances' leases as expired.",
                 Clock.GetType().Name);
         }
 

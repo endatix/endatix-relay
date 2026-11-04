@@ -25,10 +25,14 @@ internal sealed class OutboxRelaySignal : IOutboxRelaySignal
         var elapsed = Task.Delay(interval, clock, waiting.Token);
         var woken = _wakes.Reader.WaitToReadAsync(waiting.Token).AsTask();
 
-        await Task.WhenAny(elapsed, woken);
+        var first = await Task.WhenAny(elapsed, woken);
         await waiting.CancelAsync();
 
-        // The poll that follows serves a wake that raced the interval, so it doesn't earn another one.
-        _wakes.Reader.TryRead(out _);
+        // Take the wake only when it ended the wait. When the interval did, a wake that lands now stays in
+        // the slot: the poll that follows may already have missed its write, so it earns one more.
+        if (first == woken)
+        {
+            _wakes.Reader.TryRead(out _);
+        }
     }
 }

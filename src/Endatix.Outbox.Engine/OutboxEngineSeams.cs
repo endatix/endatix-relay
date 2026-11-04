@@ -20,3 +20,25 @@ internal sealed record OutboxPollInterval(TimeSpan Value)
     /// <summary>The smallest code-only interval. Speed comes from the clock and the wake, not a tighter loop.</summary>
     public static readonly TimeSpan Minimum = TimeSpan.FromMilliseconds(10);
 }
+
+/// <summary>
+/// The engine's timing: its clock, the relay's wake signal, and the code-only poll interval when one is set.
+/// <c>AddOutboxRelay</c> and <c>AddSqlOutboxClaimStore</c> register it, and DI passes it to the relay and the
+/// claim store. Only the engine can build one, so a host's own <see cref="TimeProvider"/> never reaches them.
+/// Change it with <c>UseOutboxClock</c> and <c>UseOutboxPollInterval</c>.
+/// </summary>
+public sealed class OutboxTiming
+{
+    internal OutboxTiming(TimeProvider clock, OutboxRelaySignal signal, TimeSpan? pollInterval)
+    {
+        Clock = clock;
+        Signal = signal;
+        PollInterval = pollInterval;
+    }
+
+    internal TimeProvider Clock { get; }
+
+    internal OutboxRelaySignal Signal { get; }
+
+    internal TimeSpan? PollInterval { get; }
+}
