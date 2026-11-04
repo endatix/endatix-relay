@@ -30,6 +30,12 @@ public class OutboxRelayBackgroundService : BackgroundService
     private bool? _lastEnabled;
 
     /// <summary>Creates the relay on <see cref="TimeProvider.System"/>, polling every <see cref="OutboxOptions.PollIntervalSeconds"/>.</summary>
+    /// <remarks>
+    /// Kept for existing callers. A relay built with it doesn't take part in the engine's timing: it ignores
+    /// <c>UseOutboxClock</c> and <c>UseOutboxPollInterval</c>, and it waits on a private signal, so
+    /// <see cref="IOutboxRelaySignal.Wake"/> from DI never reaches it. <c>AddOutboxRelay</c> uses the constructor
+    /// that takes <see cref="OutboxTiming"/>.
+    /// </remarks>
     public OutboxRelayBackgroundService(
         IServiceScopeFactory scopeFactory,
         IOptions<OutboxOptions> options,
