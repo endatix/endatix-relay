@@ -73,6 +73,9 @@ public sealed class OutboxRelayTimingTests : IAsyncDisposable
     {
         var (relay, signal) = Build();
         var message = new FakeOutboxMessage(1);
+        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _publisher.PublishAsync(message, Arg.Any<CancellationToken>())
+            .Returns(_ => { published.TrySetResult(); return Task.CompletedTask; });
         var start = _clock.GetUtcNow();
         await relay.StartAsync(CancellationToken.None);
         await _claims.WaitForAsync(1, Patience);
@@ -80,7 +83,7 @@ public sealed class OutboxRelayTimingTests : IAsyncDisposable
         _claims.NextBatch = [message];
         signal.Wake();
 
-        await _claims.WaitForAsync(2, Patience);
+        await published.Task.WaitAsync(Patience);
         await relay.StopAsync(CancellationToken.None);
         await _publisher.Received(1).PublishAsync(message, Arg.Any<CancellationToken>());
         Assert.Equal(start, _clock.GetUtcNow()); // the clock never moved: only the wake ran the poll
