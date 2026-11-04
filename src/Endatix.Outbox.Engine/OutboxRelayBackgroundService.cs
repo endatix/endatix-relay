@@ -42,7 +42,7 @@ public class OutboxRelayBackgroundService : BackgroundService
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Outbox relay started (instance {InstanceId}).", _instanceId);
+        LogLifecycle("started");
 
         // Fail fast on DI misconfiguration: resolve the required scoped services once at startup so a missing
         // registration crashes the host instead of being swallowed by the per-tick retry catch below (which
@@ -80,7 +80,7 @@ public class OutboxRelayBackgroundService : BackgroundService
             await DelayAsync(_options.PollInterval, stoppingToken);
         }
 
-        _logger.LogInformation("Outbox relay stopping (instance {InstanceId}).", _instanceId);
+        LogLifecycle("stopping");
     }
 
     /// <summary>
@@ -95,9 +95,7 @@ public class OutboxRelayBackgroundService : BackgroundService
 
         if (_lastEnabled != enabled)
         {
-            _logger.LogInformation(
-                "Outbox relay {State} (flag '{Flag}').",
-                enabled ? "enabled" : "disabled", OutboxFlags.RelayInProcess);
+            LogGateChange(enabled);
             _lastEnabled = enabled;
         }
 
@@ -172,10 +170,28 @@ public class OutboxRelayBackgroundService : BackgroundService
         }
     }
 
+    private void LogLifecycle(string phase)
+    {
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation("Outbox relay {Phase} (instance {InstanceId}).", phase, _instanceId);
+        }
+    }
+
+    private void LogGateChange(bool enabled)
+    {
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            _logger.LogInformation(
+                "Outbox relay {State} (flag '{Flag}').",
+                enabled ? "enabled" : "disabled", OutboxFlags.RelayInProcess);
+        }
+    }
+
     // Marks a published row sent. A MarkSent failure must NOT be routed to HandlePublishFailureAsync — that
     // would re-publish a delivered message or, at MaxAttempts, wrongly dead-letter it. Instead abort the tick
-    // by rethrowing: a failing mark usually means the store is unhealthy, so continuing would publish the rest
-    // of the batch and redeliver all of them on lease expiry (a duplicate storm). The already-published row
+    // by throwing (the ExecuteAsync loop logs it): a failing mark usually means the store is unhealthy, so
+    // continuing would publish the rest of the batch and redeliver all of them on lease expiry (a duplicate storm). The already-published row
     // redelivers after its lease expires (at-least-once); the remaining claimed rows were never published.
     private async Task MarkSentOrAbortTickAsync(
         IOutboxClaimStore claimStore, IOutboxMessage message, CancellationToken cancellationToken)
@@ -186,10 +202,9 @@ public class OutboxRelayBackgroundService : BackgroundService
         }
         catch (Exception ex) when (!IsCancellation(ex, cancellationToken))
         {
-            _logger.LogError(
-                ex, "Outbox message {MessageId} ({EventType}) published but MarkSent failed; aborting the tick (it redelivers after lease expiry).",
-                message.Id, message.EventType);
-            throw;
+            throw new InvalidOperationException(
+                $"Outbox message {message.Id} ({message.EventType}) published but MarkSent failed; aborting the tick (it redelivers after lease expiry).",
+                ex);
         }
     }
 

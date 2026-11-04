@@ -14,6 +14,10 @@ namespace Endatix.Outbox.Engine;
 /// </summary>
 public sealed class SqlOutboxClaimStore : IOutboxClaimStore
 {
+    private const string IdParameter = "@id";
+    private const string LockedByParameter = "@lockedBy";
+    private const string NowParameter = "@now";
+
     private readonly IOutboxConnectionFactory _connectionFactory;
     private readonly OutboxSqlBuilder _sql;
     private readonly ILogger<SqlOutboxClaimStore> _logger;
@@ -39,9 +43,9 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = _sql.ClaimSql;
-        AddParameter(command, "@now", now);
+        AddParameter(command, NowParameter, now);
         AddParameter(command, "@batchSize", batchSize);
-        AddParameter(command, "@lockedBy", instanceId);
+        AddParameter(command, LockedByParameter, instanceId);
         AddParameter(command, "@lockedUntil", now + lease);
 
         var rows = new List<IOutboxMessage>();
@@ -58,7 +62,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     public async Task MarkSentAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken)
     {
         var affected = await ExecuteAsync(_sql.MarkSentSql, cancellationToken,
-            ("@id", message.Id), ("@lockedBy", instanceId), ("@now", DateTime.UtcNow));
+            (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, DateTime.UtcNow));
         WarnIfLeaseLost(affected, message, instanceId, "MarkSent");
     }
 
@@ -66,7 +70,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     public async Task RescheduleAsync(IOutboxMessage message, DateTimeOffset nextAttemptAt, string instanceId, CancellationToken cancellationToken)
     {
         var affected = await ExecuteAsync(_sql.RescheduleSql, cancellationToken,
-            ("@id", message.Id), ("@lockedBy", instanceId), ("@nextAttemptAt", nextAttemptAt));
+            (IdParameter, message.Id), (LockedByParameter, instanceId), ("@nextAttemptAt", nextAttemptAt));
         WarnIfLeaseLost(affected, message, instanceId, "Reschedule");
     }
 
@@ -74,7 +78,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     public async Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken)
     {
         var affected = await ExecuteAsync(_sql.MarkFailedSql, cancellationToken,
-            ("@id", message.Id), ("@lockedBy", instanceId), ("@now", DateTime.UtcNow));
+            (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, DateTime.UtcNow));
         WarnIfLeaseLost(affected, message, instanceId, "MarkFailed");
     }
 
