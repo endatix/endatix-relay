@@ -28,6 +28,7 @@ public class OutboxRelaySignalTests
         _signal.Wake();
 
         await wait.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(wait.IsCompletedSuccessfully);
     }
 
     [Fact]
@@ -54,5 +55,6 @@ public class OutboxRelaySignalTests
         await cts.CancelAsync();
 
         await wait.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(wait.IsCompletedSuccessfully);
     }
 }
