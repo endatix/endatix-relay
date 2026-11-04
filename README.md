@@ -44,8 +44,10 @@ startup when it runs on a non-default clock or a sub-second interval.
 ```csharp
 var clock = new FakeTimeProvider(DateTimeOffset.UtcNow); // Microsoft.Extensions.TimeProvider.Testing
 
+services.AddSingleton<TimeProvider>(clock);              // the host's own code, which writes NextAttemptAt;
+                                                       // the engine ignores this registration
 services.AddOutboxRelay(...)
-    .UseOutboxClock(clock)                                // the engine's clock
+    .UseOutboxClock(clock)                                // the engine's clock: the same instance
     .UseOutboxPollInterval(TimeSpan.FromMilliseconds(50)); // code-only, 10 ms minimum
 
 // after writing an outbox row:
@@ -70,9 +72,9 @@ the engine's clock is behind it, due messages look like they're in the future. U
 or only move the engine's forward.
 
 **SQL Server rounds timestamps to 1/300 s.** The claim store binds timestamps as `datetime`, so a message's
-stored `NextAttemptAt` and a claim's "now" for the same instant don't reliably compare as equal. Advance the
-clock between a give-back and the next claim, as the integration suite does, rather than claiming at the same
-instant.
+stored `NextAttemptAt` and a claim's "now" for the same instant don't reliably compare as equal. Between a
+give-back and the next claim, advance the clock by more than 1/300 s (the integration suite uses 10 ms) rather
+than claiming at the same instant.
 
 ## Dependencies
 
