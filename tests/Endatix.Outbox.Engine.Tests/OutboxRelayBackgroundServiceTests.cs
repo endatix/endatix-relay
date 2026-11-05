@@ -140,6 +140,23 @@ public class OutboxRelayBackgroundServiceTests
     }
 
     [Fact]
+    public async Task Derived_permanent_failure_marks_failed_at_once()
+    {
+        GateReturns(true);
+        var message = new FakeOutboxMessage(1, Attempts: 0);
+        ClaimReturns(message);
+        _publisher.PublishAsync(message, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new RetiredEventTypeException("form.retired")));
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 8 });
+
+        await relay.ProcessOnceAsync(services, CancellationToken.None);
+
+        await _claimStore.Received(1).MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().RescheduleAsync(
+            message, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Wrapped_permanent_failure_reschedules_as_an_ordinary_failure()
     {
         GateReturns(true);
@@ -336,4 +353,7 @@ public class OutboxRelayBackgroundServiceTests
 
         Assert.Equal(now.AddSeconds(expectedSeconds), next);
     }
+
+    private sealed class RetiredEventTypeException(string eventType)
+        : OutboxPermanentFailureException($"Event type '{eventType}' is retired.");
 }
