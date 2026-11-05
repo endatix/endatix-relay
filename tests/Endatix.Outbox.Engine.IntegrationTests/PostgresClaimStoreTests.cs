@@ -167,17 +167,25 @@ public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
     }
 
     [Fact]
-    public async Task Ordinary_failure_reschedules_the_row()
+    public async Task Ordinary_failure_reschedules_the_row_behind_its_backoff()
     {
-        await using var store = await NewStoreAsync();
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var store = new OutboxTestStore(fixture.ConnectionString, clock);
+        await store.CreateTableAsync();
         await store.InsertAsync(1);
+        var firstBackoff = TimeSpan.FromSeconds(new OutboxOptions().BackoffBaseSeconds);
 
-        await RelayTick.RunWithFailingPublisherAsync(store.ClaimStore, new InvalidOperationException("broker down"));
+        await RelayTick.RunWithFailingPublisherAsync(
+            store.ClaimStore, new InvalidOperationException("broker down"), clock);
 
         var row = await store.GetAsync(1);
         Assert.Equal(OutboxStatus.Pending, row.Status);
         Assert.Equal(1, row.Attempts);
         Assert.NotNull(row.NextAttemptAt);
+        Assert.Empty(await ClaimIdsAsync(store, InstanceB));
+
+        clock.Advance(firstBackoff);
+        Assert.Equal([1L], await ClaimIdsAsync(store, InstanceB));
     }
 
     [Fact]

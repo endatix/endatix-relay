@@ -6,11 +6,13 @@ namespace Endatix.Outbox.Engine.IntegrationTests;
 
 /// <summary>
 /// Runs one relay tick over a real claim store, with a publisher that throws the given exception. Shared by the
-/// provider suites to prove what a failed publish leaves in the row.
+/// provider suites to prove what a failed publish leaves in the row. Pass the store's clock so the relay's backoff
+/// and the store's claim compare on the same "now".
 /// </summary>
 internal static class RelayTick
 {
-    public static async Task RunWithFailingPublisherAsync(IOutboxClaimStore claimStore, Exception failure)
+    public static async Task RunWithFailingPublisherAsync(
+        IOutboxClaimStore claimStore, Exception failure, TimeProvider? clock = null)
     {
         await using var services = new ServiceCollection()
             .AddSingleton(claimStore)
@@ -21,7 +23,9 @@ internal static class RelayTick
         using var relay = new OutboxRelayBackgroundService(
             services.GetRequiredService<IServiceScopeFactory>(),
             Options.Create(new OutboxOptions()),
-            NullLogger<OutboxRelayBackgroundService>.Instance);
+            NullLogger<OutboxRelayBackgroundService>.Instance,
+            new OutboxTiming(
+                new OutboxTimingOptions { Clock = clock ?? TimeProvider.System }, new OutboxRelaySignal()));
 
         await relay.ProcessOnceAsync(services, CancellationToken.None);
     }
