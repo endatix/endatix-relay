@@ -157,6 +157,25 @@ public class OutboxRelayBackgroundServiceTests
     }
 
     [Fact]
+    public async Task Permanent_failure_does_not_stop_the_rest_of_the_batch()
+    {
+        GateReturns(true);
+        var m1 = new FakeOutboxMessage(1, Attempts: 0);
+        var m2 = new FakeOutboxMessage(2, Attempts: 0);
+        ClaimReturns(m1, m2);
+        _publisher.PublishAsync(m1, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new OutboxPermanentFailureException("retired")));
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 8 });
+
+        var processed = await relay.ProcessOnceAsync(services, CancellationToken.None);
+
+        Assert.Equal(2, processed);
+        await _claimStore.Received(1).MarkFailedAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _publisher.Received(1).PublishAsync(m2, Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkSentAsync(m2, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public async Task Wrapped_permanent_failure_reschedules_as_an_ordinary_failure()
     {
         GateReturns(true);
