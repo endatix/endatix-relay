@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Endatix.Outbox.Engine.Tests" />
+    <InternalsVisibleTo Include="Endatix.Outbox.Engine.IntegrationTests" />
   </ItemGroup>
 
   <ItemGroup>

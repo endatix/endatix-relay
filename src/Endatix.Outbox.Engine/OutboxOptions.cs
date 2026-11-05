@@ -10,8 +10,11 @@ namespace Endatix.Outbox.Engine;
 /// </summary>
 public sealed class OutboxOptions : IValidatableObject
 {
-    /// <summary>Delay between poll ticks.</summary>
-    [Range(1, int.MaxValue)]
+    /// <summary>
+    /// Delay between poll ticks, from 1 second to 4,294,967 seconds (about 49.7 days, the longest wait
+    /// <c>Task.Delay</c> takes).
+    /// </summary>
+    [Range(1, 4_294_967)]
     public int PollIntervalSeconds { get; set; } = 5;
 
     /// <summary>Max rows claimed per tick.</summary>

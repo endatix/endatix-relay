@@ -92,7 +92,8 @@ jobs:
             --collect:"XPlat Code Coverage" --results-directory "${{ github.workspace }}/TestResults" \
             -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
 
-      # Real-DB suite (Testcontainers). ubuntu-latest has Docker; the fixtures pull postgres:16.
+      # Real-DB suite (Testcontainers). ubuntu-latest is x64 with Docker; the fixtures pull postgres:16 and
+      # mssql/server:2022 (amd64-only, so the Provider=SqlServer tests skip on Arm64 machines).
       - name: 🐳 Run integration tests
         run: |
           dotnet test --no-build -c Release --verbosity normal --filter "Category=Integration" \

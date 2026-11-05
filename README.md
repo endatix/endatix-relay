@@ -34,6 +34,48 @@ the host calls `AddSqlOutboxClaimStore(...)` with its **dialect**, a **connectio
 `_ => new NpgsqlConnection(connString)`), and optionally the **table name** (both hosts must agree). The host
 also owns the table's existence (migration) and EF mapping for the capture/write side.
 
+## Testing a host: clock, poll interval, and wake
+
+Delivery is eventually consistent: in production the relay polls every `PollIntervalSeconds` (default 5 s,
+minimum 1 s), and nothing here changes that. Tests of the relay, or of an app that hosts it, can make delivery
+immediate and deterministic with three seams. All three are meant for tests, and the relay logs a warning at
+startup when it runs on a non-default clock or a sub-second interval.
+
+```csharp
+var clock = new FakeTimeProvider(DateTimeOffset.UtcNow); // Microsoft.Extensions.TimeProvider.Testing
+
+services.AddSingleton<TimeProvider>(clock);              // the host's own code, which writes NextAttemptAt;
+                                                       // the engine ignores this registration
+services.AddOutboxRelay(...)
+    .UseOutboxClock(clock)                                // the engine's clock: the same instance
+    .UseOutboxPollInterval(TimeSpan.FromMilliseconds(50)); // code-only, 10 ms minimum
+
+// after writing an outbox row:
+provider.GetRequiredService<IOutboxRelaySignal>().Wake();
+```
+
+- **`UseOutboxClock(TimeProvider)`** replaces the engine's clock, which defaults to `TimeProvider.System`. The
+  claim's "now", the lease, the backoff, and the wait between polls all read it, so advancing a fake clock
+  runs the next poll with no real wait. Only this call changes it: a `TimeProvider` the host registers in DI
+  for other reasons doesn't, because a clock that runs ahead claims early and treats other instances'
+  leases as expired.
+- **`UseOutboxPollInterval(TimeSpan)`** sets the interval in code, from 10 ms up to `Task.Delay`'s maximum
+  (about 49.7 days; `PollIntervalSeconds` has the same ceiling). It wins over `PollIntervalSeconds`. No
+  configuration key, environment variables included, can set an interval under a second. The interval must be
+  finite: a test driven only by `Wake()` can pass a long one such as `TimeSpan.FromDays(1)`.
+- **`IOutboxRelaySignal.Wake()`** ends the current wait, so the next poll runs at once. A wake that arrives
+  during a poll is remembered: the next poll starts as soon as that one finishes, and several wakes during one
+  poll cause one extra poll.
+
+**Never let the engine's clock run behind the host's.** The host writes `NextAttemptAt` with its own clock; if
+the engine's clock is behind it, due messages look like they're in the future. Use the same clock for both,
+or only move the engine's forward.
+
+**SQL Server rounds timestamps to 1/300 s.** The claim store binds timestamps as `datetime`, so a message's
+stored `NextAttemptAt` and a claim's "now" for the same instant don't reliably compare as equal. Between a
+give-back and the next claim, advance the clock by more than 1/300 s (the integration suite uses 10 ms) rather
+than claiming at the same instant.
+
 ## Dependencies
 
 `Microsoft.Extensions.*` abstractions (Hosting/DI/Options/Logging) + `OpenFeature`, plus `System.Data.Common`
@@ -42,8 +84,12 @@ also owns the table's existence (migration) and EF mapping for the capture/write
 ## Build & test
 
 ```bash
-dotnet test
+dotnet test --filter "Category!=Integration"   # unit
+dotnet test --filter "Category=Integration"    # real databases via Testcontainers (needs Docker)
 ```
+
+The integration suite runs on PostgreSQL and SQL Server. The SQL Server image is amd64-only, so its tests
+(trait `Provider=SqlServer`) skip on Arm64; CI runs both on x64.
 
 ## CI / Release (trunk-based)
 

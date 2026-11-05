@@ -22,23 +22,53 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     private readonly OutboxSqlBuilder _sql;
     private readonly ILogger<SqlOutboxClaimStore> _logger;
 
-    /// <summary>Creates the claim store for the configured dialect/table.</summary>
+    /// <summary>Creates the claim store for the configured dialect/table, on <see cref="TimeProvider.System"/>.</summary>
     public SqlOutboxClaimStore(
         IOutboxConnectionFactory connectionFactory,
         IOptions<OutboxSqlOptions> options,
         ILogger<SqlOutboxClaimStore> logger)
+        : this(connectionFactory, options, logger, TimeProvider.System)
+    {
+    }
+
+    /// <summary>
+    /// Creates the claim store on the engine's clock, which sets the claim's "now", the lease, and the sent and
+    /// failed times. DI uses this one once <c>AddSqlOutboxClaimStore</c> or <c>AddOutboxRelay</c> has
+    /// registered <see cref="OutboxTiming"/> (see <c>UseOutboxClock</c>).
+    /// </summary>
+    public SqlOutboxClaimStore(
+        IOutboxConnectionFactory connectionFactory,
+        IOptions<OutboxSqlOptions> options,
+        ILogger<SqlOutboxClaimStore> logger,
+        OutboxTiming timing)
+        : this(connectionFactory, options, logger, timing.Clock)
+    {
+    }
+
+    // Internal so DI never fills it with a host's own TimeProvider; tests pass a clock directly.
+    internal SqlOutboxClaimStore(
+        IOutboxConnectionFactory connectionFactory,
+        IOptions<OutboxSqlOptions> options,
+        ILogger<SqlOutboxClaimStore> logger,
+        TimeProvider clock)
     {
         _connectionFactory = connectionFactory;
         _logger = logger;
+        Clock = clock;
         var opts = options.Value;
         _sql = new OutboxSqlBuilder(opts.Dialect, opts.TableName);
     }
+
+    /// <summary>The clock this store reads "now" from.</summary>
+    internal TimeProvider Clock { get; }
+
+    private DateTime UtcNow => Clock.GetUtcNow().UtcDateTime;
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<IOutboxMessage>> ClaimBatchAsync(
         string instanceId, TimeSpan lease, int batchSize, CancellationToken cancellationToken)
     {
-        var now = DateTime.UtcNow;
+        var now = UtcNow;
         await using var connection = _connectionFactory.Create();
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
@@ -62,7 +92,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     public async Task MarkSentAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken)
     {
         var affected = await ExecuteAsync(_sql.MarkSentSql, cancellationToken,
-            (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, DateTime.UtcNow));
+            (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, UtcNow));
         WarnIfLeaseLost(affected, message, instanceId, "MarkSent");
     }
 
@@ -78,7 +108,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     public async Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken)
     {
         var affected = await ExecuteAsync(_sql.MarkFailedSql, cancellationToken,
-            (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, DateTime.UtcNow));
+            (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, UtcNow));
         WarnIfLeaseLost(affected, message, instanceId, "MarkFailed");
     }
 

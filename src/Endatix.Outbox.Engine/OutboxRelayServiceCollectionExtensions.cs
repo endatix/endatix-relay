@@ -31,8 +31,48 @@ public static class OutboxRelayServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<OutboxOptions>, OutboxOptionsValidator>());
 
         services.TryAddScoped<IOutboxRelayGate, OpenFeatureOutboxRelayGate>();
+        AddTiming(services);
         services.AddHostedService<OutboxRelayBackgroundService>();
 
+        return services;
+    }
+
+    /// <summary>
+    /// Replaces the engine's clock, which defaults to <see cref="TimeProvider.System"/>. Meant for tests: with a
+    /// fake clock, advancing it runs the next poll and moves the claim, lease, and backoff times. The relay
+    /// logs a warning at startup when it runs on any other clock.
+    /// </summary>
+    /// <remarks>
+    /// Only this call changes the engine's clock; a <see cref="TimeProvider"/> registered in DI for other
+    /// reasons doesn't. Never let the engine's clock run behind the clock the host writes
+    /// <c>NextAttemptAt</c> with, or due messages look like they're in the future: use the same clock for
+    /// both, or only move the engine's forward. A clock that runs ahead claims early and treats other
+    /// instances' leases as expired.
+    /// </remarks>
+    public static IServiceCollection UseOutboxClock(this IServiceCollection services, TimeProvider clock)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        services.Configure<OutboxTimingOptions>(o => o.Clock = clock);
+        return services;
+    }
+
+    /// <summary>
+    /// Sets the relay's poll interval in code, down to 10 ms. Meant for tests; the relay logs a warning at
+    /// startup when the interval is under a second. It wins over <see cref="OutboxOptions.PollIntervalSeconds"/>,
+    /// and no configuration key can reach it, so production settings can't poll faster than once a second.
+    /// </summary>
+    /// <remarks>
+    /// The interval must be finite and at most <see cref="Task.Delay(TimeSpan)"/>'s maximum, about 49.7 days. A
+    /// test driven only by <see cref="IOutboxRelaySignal.Wake"/> can pass a long finite interval such as
+    /// <c>TimeSpan.FromDays(1)</c>.
+    /// </remarks>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="interval"/> is under 10 ms, over about 49.7 days, or <see cref="Timeout.InfiniteTimeSpan"/>.
+    /// </exception>
+    public static IServiceCollection UseOutboxPollInterval(this IServiceCollection services, TimeSpan interval)
+    {
+        OutboxTimingOptions.ValidatePollInterval(interval);
+        services.Configure<OutboxTimingOptions>(o => o.PollInterval = interval);
         return services;
     }
 
@@ -86,8 +126,21 @@ public static class OutboxRelayServiceCollectionExtensions
         // — a singleton would pin the root container and break any host factory that resolves scoped services.
         services.TryAddScoped<IOutboxConnectionFactory>(
             sp => new DelegateOutboxConnectionFactory(() => connectionFactory(sp)));
+        AddTiming(services);
         services.TryAddScoped<IOutboxClaimStore, SqlOutboxClaimStore>();
 
         return services;
+    }
+
+    // OutboxTimingOptions is read when OutboxTiming is first resolved, so UseOutboxClock and
+    // UseOutboxPollInterval work before or after AddOutboxRelay, and the last call wins.
+    private static void AddTiming(IServiceCollection services)
+    {
+        services.AddOptions<OutboxTimingOptions>();
+        services.TryAddSingleton<OutboxRelaySignal>();
+        services.TryAddSingleton<IOutboxRelaySignal>(sp => sp.GetRequiredService<OutboxRelaySignal>());
+        services.TryAddSingleton(sp => new OutboxTiming(
+            sp.GetRequiredService<IOptions<OutboxTimingOptions>>().Value,
+            sp.GetRequiredService<OutboxRelaySignal>()));
     }
 }

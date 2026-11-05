@@ -24,25 +24,56 @@ public class OutboxRelayBackgroundService : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly OutboxOptions _options;
     private readonly ILogger<OutboxRelayBackgroundService> _logger;
+    private readonly OutboxRelaySignal _signal;
     private readonly string _instanceId = $"{Environment.MachineName}:{Environment.ProcessId}";
 
     private bool? _lastEnabled;
 
-    /// <summary>Creates the relay.</summary>
+    /// <summary>Creates the relay on <see cref="TimeProvider.System"/>, polling every <see cref="OutboxOptions.PollIntervalSeconds"/>.</summary>
+    /// <remarks>
+    /// Kept for existing callers. A relay built with it doesn't take part in the engine's timing: it ignores
+    /// <c>UseOutboxClock</c> and <c>UseOutboxPollInterval</c>, and it waits on a private signal, so
+    /// <see cref="IOutboxRelaySignal.Wake"/> from DI never reaches it. <c>AddOutboxRelay</c> uses the constructor
+    /// that takes <see cref="OutboxTiming"/>.
+    /// </remarks>
     public OutboxRelayBackgroundService(
         IServiceScopeFactory scopeFactory,
         IOptions<OutboxOptions> options,
         ILogger<OutboxRelayBackgroundService> logger)
+        : this(scopeFactory, options, logger, new OutboxTiming(new OutboxTimingOptions(), new OutboxRelaySignal()))
+    {
+    }
+
+    /// <summary>
+    /// Creates the relay on the engine's timing: its clock, its wake signal, and the code-only poll interval,
+    /// which wins over <see cref="OutboxOptions.PollIntervalSeconds"/>. DI uses this one once
+    /// <c>AddOutboxRelay</c> has registered <see cref="OutboxTiming"/>.
+    /// </summary>
+    public OutboxRelayBackgroundService(
+        IServiceScopeFactory scopeFactory,
+        IOptions<OutboxOptions> options,
+        ILogger<OutboxRelayBackgroundService> logger,
+        OutboxTiming timing)
     {
         _scopeFactory = scopeFactory;
         _options = options.Value;
         _logger = logger;
+        _signal = timing.Signal;
+        Clock = timing.Clock;
+        PollInterval = timing.PollInterval ?? _options.PollInterval;
     }
+
+    /// <summary>The clock the relay waits on and computes backoff from.</summary>
+    internal TimeProvider Clock { get; }
+
+    /// <summary>The wait between polls: the code-only interval when set, else <see cref="OutboxOptions.PollIntervalSeconds"/>.</summary>
+    internal TimeSpan PollInterval { get; }
 
     /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         LogLifecycle("started");
+        WarnAboutNonDefaultTiming();
 
         // Fail fast on DI misconfiguration: resolve the required scoped services once at startup so a missing
         // registration crashes the host instead of being swallowed by the per-tick retry catch below (which
@@ -77,7 +108,7 @@ public class OutboxRelayBackgroundService : BackgroundService
                 continue;
             }
 
-            await DelayAsync(_options.PollInterval, stoppingToken);
+            await _signal.WaitAsync(PollInterval, Clock, stoppingToken);
         }
 
         LogLifecycle("stopping");
@@ -162,7 +193,7 @@ public class OutboxRelayBackgroundService : BackgroundService
         }
         else
         {
-            var nextAttemptAt = ComputeNextAttempt(message.Attempts, DateTimeOffset.UtcNow, _options);
+            var nextAttemptAt = ComputeNextAttempt(message.Attempts, Clock.GetUtcNow(), _options);
             _logger.LogWarning(
                 ex, "Outbox message {MessageId} ({EventType}) publish failed (attempt {Attempt}); retry at {NextAttemptAt:o}.",
                 message.Id, message.EventType, message.Attempts + 1, nextAttemptAt);
@@ -175,6 +206,24 @@ public class OutboxRelayBackgroundService : BackgroundService
         if (_logger.IsEnabled(LogLevel.Information))
         {
             _logger.LogInformation("Outbox relay {Phase} (instance {InstanceId}).", phase, _instanceId);
+        }
+    }
+
+    // Both settings are meant for tests, so a production host that carries one by mistake says so at startup.
+    private void WarnAboutNonDefaultTiming()
+    {
+        if (Clock != TimeProvider.System)
+        {
+            _logger.LogWarning(
+                "Outbox relay runs on the clock {ClockType}, not TimeProvider.System. This is meant for tests: if it runs ahead of real time, the relay claims early and treats other instances' leases as expired.",
+                Clock.GetType().Name);
+        }
+
+        if (PollInterval < TimeSpan.FromSeconds(1))
+        {
+            _logger.LogWarning(
+                "Outbox relay poll interval is {PollIntervalMs} ms, under a second. This is meant for tests: every poll runs a claim query.",
+                PollInterval.TotalMilliseconds);
         }
     }
 
@@ -224,17 +273,5 @@ public class OutboxRelayBackgroundService : BackgroundService
         var seconds = options.BackoffBaseSeconds * Math.Pow(2, exponent);
         var capped = Math.Min(seconds, options.BackoffCapSeconds);
         return utcNow.AddSeconds(capped);
-    }
-
-    private static async Task DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(delay, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            // shutting down
-        }
     }
 }
