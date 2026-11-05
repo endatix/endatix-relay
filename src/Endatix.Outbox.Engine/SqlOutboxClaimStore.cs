@@ -105,10 +105,15 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     }
 
     /// <inheritdoc />
-    public async Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken)
+    public Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken) =>
+        MarkFailedAsync(message, reason: null, instanceId, cancellationToken);
+
+    /// <inheritdoc />
+    public async Task MarkFailedAsync(IOutboxMessage message, string? reason, string instanceId, CancellationToken cancellationToken)
     {
         var affected = await ExecuteAsync(_sql.MarkFailedSql, cancellationToken,
-            (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, UtcNow));
+            (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, UtcNow),
+            ("@failureReason", (object?)reason ?? DBNull.Value));
         WarnIfLeaseLost(affected, message, instanceId, "MarkFailed");
     }
 

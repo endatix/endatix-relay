@@ -148,7 +148,66 @@ public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
         Assert.Equal(OutboxStatus.Failed, row.Status);
         Assert.Equal(1, row.Attempts);
         Assert.Null(row.LockedBy);
+        Assert.Null(row.FailureReason);
         Assert.Empty(await ClaimIdsAsync(store, InstanceB));
+    }
+
+    [Fact]
+    public async Task MarkFailed_with_a_reason_stores_it()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1);
+        var claimed = await store.ClaimStore.ClaimBatchAsync(InstanceA, Lease, 50, CancellationToken.None);
+
+        await store.ClaimStore.MarkFailedAsync(claimed[0], "Event type is retired.", InstanceA, CancellationToken.None);
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Failed, row.Status);
+        Assert.Equal("Event type is retired.", row.FailureReason);
+    }
+
+    [Fact]
+    public async Task Permanent_failure_fails_the_row_on_its_first_attempt_with_the_reason()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1, eventType: "form.retired");
+
+        await RelayTick.RunWithFailingPublisherAsync(
+            store.ClaimStore, new OutboxPermanentFailureException("Event type 'form.retired' is retired."));
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Failed, row.Status);
+        Assert.Equal(1, row.Attempts);
+        Assert.Equal("Event type 'form.retired' is retired.", row.FailureReason);
+        Assert.Null(row.LockedBy);
+    }
+
+    [Fact]
+    public async Task Ordinary_failure_reschedules_the_row_and_stores_no_reason()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1);
+
+        await RelayTick.RunWithFailingPublisherAsync(store.ClaimStore, new InvalidOperationException("broker down"));
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Pending, row.Status);
+        Assert.Equal(1, row.Attempts);
+        Assert.NotNull(row.NextAttemptAt);
+        Assert.Null(row.FailureReason);
+    }
+
+    [Fact]
+    public async Task Exhausted_retries_store_the_last_error()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1, attempts: new OutboxOptions().MaxAttempts - 1);
+
+        await RelayTick.RunWithFailingPublisherAsync(store.ClaimStore, new InvalidOperationException("broker down"));
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Failed, row.Status);
+        Assert.Equal("System.InvalidOperationException: broker down", row.FailureReason);
     }
 
     [Fact]

@@ -105,6 +105,7 @@ public class OutboxSqlBuilderTests
         var sql = new OutboxSqlBuilder(dialect, "OutboxMessages").MarkFailedSql;
 
         Assert.Contains($"{Col(dialect, OutboxSchema.Status)} = 2", sql);       // Failed
+        Assert.Contains($"{Col(dialect, OutboxSchema.FailureReason)} = @failureReason", sql);
         Assert.Contains($"WHERE {Col(dialect, OutboxSchema.Id)} = @id AND {Col(dialect, OutboxSchema.Status)} = 0", sql);
         Assert.Contains($"AND {Col(dialect, OutboxSchema.LockedBy)} = @lockedBy", sql); // lease-ownership guard
     }

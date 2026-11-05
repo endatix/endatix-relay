@@ -31,8 +31,19 @@ public interface IOutboxClaimStore
     Task RescheduleAsync(IOutboxMessage message, DateTimeOffset nextAttemptAt, string instanceId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Marks a row as terminally failed (max attempts exhausted) and releases its lease. Guarded by lease
+    /// Marks a row as terminally failed with no reason and releases its lease. Guarded by lease
     /// ownership (<paramref name="instanceId"/>).
     /// </summary>
     Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Marks a row as terminally failed, stores <paramref name="reason"/> in <see cref="OutboxSchema.FailureReason"/>,
+    /// and releases its lease. Guarded by lease ownership (<paramref name="instanceId"/>). The relay calls this one.
+    /// </summary>
+    /// <remarks>
+    /// The default calls <see cref="MarkFailedAsync(IOutboxMessage, string, CancellationToken)"/> and drops the
+    /// reason, so a host's own claim store keeps working unchanged; override it to store the reason.
+    /// </remarks>
+    Task MarkFailedAsync(IOutboxMessage message, string? reason, string instanceId, CancellationToken cancellationToken) =>
+        MarkFailedAsync(message, instanceId, cancellationToken);
 }

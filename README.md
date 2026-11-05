@@ -13,6 +13,7 @@ sits below both in the dependency graph.
   - `IOutboxMessage` — read shape of an outbox row.
   - `IOutboxClaimStore` — DB-arbitrated claim (`SKIP LOCKED`/`READPAST` + lease) + mark sent/reschedule/failed.
   - `IIntegrationEventPublisher` — delivers a claimed message (webhook in-process, DAPR in the worker).
+    It throws `OutboxPermanentFailureException` for a message that can never be delivered.
 - **`OutboxRelayBackgroundService`** — the `claim → publish → mark` loop. Scope-per-tick, exponential
   backoff, lease-based crash recovery, at-least-once.
 - **OpenFeature gate** — `IOutboxRelayGate` / `OpenFeatureOutboxRelayGate` evaluate the
@@ -33,6 +34,61 @@ supplies `IFeatureClient`) — the host wires those (webhook vs DAPR; in-memory 
 the host calls `AddSqlOutboxClaimStore(...)` with its **dialect**, a **connection factory** (e.g.
 `_ => new NpgsqlConnection(connString)`), and optionally the **table name** (both hosts must agree). The host
 also owns the table's existence (migration) and EF mapping for the capture/write side.
+
+## Permanent failures and the failure reason
+
+A publish that throws is retried with exponential backoff until `MaxAttempts` (default 8) runs out; then the row
+is marked `Failed`. A publisher that knows a message can never be delivered, such as a row of a retired event
+type, throws `OutboxPermanentFailureException` instead. The relay marks that row `Failed` at once, on the attempt
+that threw, and makes no further attempts:
+
+```csharp
+public Task PublishAsync(IOutboxMessage message, CancellationToken cancellationToken)
+{
+    if (IsRetired(message.EventType))
+    {
+        throw new OutboxPermanentFailureException($"Event type '{message.EventType}' is retired.");
+    }
+    // ...
+}
+```
+
+Every other exception keeps the backoff and the retry budget.
+
+A failed row stores why in the `FailureReason` column (`OutboxSchema.FailureReason`):
+
+| How the row failed | `FailureReason` |
+|---|---|
+| `OutboxPermanentFailureException` | its message |
+| retries ran out | the last error, as `<exception type>: <message>` |
+
+The relay cuts a reason to `OutboxSchema.FailureReasonMaxLength` (2,000) characters. The cause stays in the
+log, with the stack trace.
+
+**Hosts must add the column** before they run 1.2.0 or later: `SqlOutboxClaimStore` writes it every time it
+marks a row failed. While the column is missing that update fails, the tick aborts, and the row is claimed
+again once its lease expires, so it never reaches `Failed`. The column is nullable, so existing rows need no
+backfill.
+
+```sql
+-- PostgreSQL
+ALTER TABLE "OutboxMessages" ADD COLUMN "FailureReason" text NULL;
+
+-- SQL Server
+ALTER TABLE [OutboxMessages] ADD [FailureReason] nvarchar(2000) NULL;
+```
+
+With EF Core, map it on the host's outbox entity and add a migration:
+
+```csharp
+builder.Property(m => m.FailureReason)
+    .HasColumnName(OutboxSchema.FailureReason)
+    .HasMaxLength(OutboxSchema.FailureReasonMaxLength);
+```
+
+A host with its own `IOutboxClaimStore` keeps working: the relay calls
+`MarkFailedAsync(message, reason, instanceId, cancellationToken)`, whose default implementation calls the
+three-argument `MarkFailedAsync` and drops the reason. Override it to store the reason.
 
 ## Testing a host: clock, poll interval, and wake
 

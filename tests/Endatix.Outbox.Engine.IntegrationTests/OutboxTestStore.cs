@@ -44,7 +44,8 @@ internal sealed class OutboxTestStore : IAsyncDisposable
                 "{OutboxSchema.LockedUntil}"   timestamptz   NULL,
                 "{OutboxSchema.LockedBy}"      varchar(128)  NULL,
                 "{OutboxSchema.NextAttemptAt}" timestamptz   NULL,
-                "{OutboxSchema.ProcessedAt}"   timestamptz   NULL
+                "{OutboxSchema.ProcessedAt}"   timestamptz   NULL,
+                "{OutboxSchema.FailureReason}" text          NULL
             );
             """;
         await ExecuteAsync(sql);
@@ -93,7 +94,7 @@ internal sealed class OutboxTestStore : IAsyncDisposable
         var sql = $"""
             SELECT "{OutboxSchema.Status}", "{OutboxSchema.Attempts}", "{OutboxSchema.LockedBy}",
                    "{OutboxSchema.LockedUntil}", "{OutboxSchema.NextAttemptAt}", "{OutboxSchema.ProcessedAt}",
-                   "{OutboxSchema.Payload}"::text, "{OutboxSchema.OccurredAt}"
+                   "{OutboxSchema.Payload}"::text, "{OutboxSchema.OccurredAt}", "{OutboxSchema.FailureReason}"
             FROM "{Table}" WHERE "{OutboxSchema.Id}" = @id;
             """;
 
@@ -112,7 +113,8 @@ internal sealed class OutboxTestStore : IAsyncDisposable
             NextAttemptAt: reader.IsDBNull(4) ? null : reader.GetDateTime(4),
             ProcessedAt: reader.IsDBNull(5) ? null : reader.GetDateTime(5),
             Payload: reader.GetString(6),
-            OccurredAt: reader.GetDateTime(7));
+            OccurredAt: reader.GetDateTime(7),
+            FailureReason: reader.IsDBNull(8) ? null : reader.GetString(8));
     }
 
     public async ValueTask DisposeAsync()
@@ -147,5 +149,6 @@ internal sealed class OutboxTestStore : IAsyncDisposable
         DateTime? NextAttemptAt,
         DateTime? ProcessedAt,
         string Payload,
-        DateTime OccurredAt);
+        DateTime OccurredAt,
+        string? FailureReason);
 }

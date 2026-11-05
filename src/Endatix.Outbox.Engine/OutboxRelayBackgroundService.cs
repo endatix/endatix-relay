@@ -184,12 +184,19 @@ public class OutboxRelayBackgroundService : BackgroundService
     private async Task HandlePublishFailureAsync(
         IOutboxClaimStore claimStore, IOutboxMessage message, Exception ex, CancellationToken cancellationToken)
     {
-        if (message.Attempts + 1 >= _options.MaxAttempts)
+        if (ex is OutboxPermanentFailureException permanent)
+        {
+            _logger.LogError(
+                ex, "Outbox message {MessageId} ({EventType}) failed permanently on attempt {Attempt}: {Reason}",
+                message.Id, message.EventType, message.Attempts + 1, permanent.Message);
+            await MarkFailedAsync(claimStore, message, permanent.Message, cancellationToken);
+        }
+        else if (message.Attempts + 1 >= _options.MaxAttempts)
         {
             _logger.LogError(
                 ex, "Outbox message {MessageId} ({EventType}) failed permanently after {Attempts} attempts.",
                 message.Id, message.EventType, message.Attempts + 1);
-            await claimStore.MarkFailedAsync(message, _instanceId, cancellationToken);
+            await MarkFailedAsync(claimStore, message, $"{ex.GetType().FullName}: {ex.Message}", cancellationToken);
         }
         else
         {
@@ -199,6 +206,15 @@ public class OutboxRelayBackgroundService : BackgroundService
                 message.Id, message.EventType, message.Attempts + 1, nextAttemptAt);
             await claimStore.RescheduleAsync(message, nextAttemptAt, _instanceId, cancellationToken);
         }
+    }
+
+    private Task MarkFailedAsync(
+        IOutboxClaimStore claimStore, IOutboxMessage message, string reason, CancellationToken cancellationToken)
+    {
+        var stored = reason.Length > OutboxSchema.FailureReasonMaxLength
+            ? reason[..OutboxSchema.FailureReasonMaxLength]
+            : reason;
+        return claimStore.MarkFailedAsync(message, stored, _instanceId, cancellationToken);
     }
 
     private void LogLifecycle(string phase)

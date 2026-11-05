@@ -42,7 +42,8 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
                 [{OutboxSchema.LockedUntil}]   datetime2      NULL,
                 [{OutboxSchema.LockedBy}]      nvarchar(128)  NULL,
                 [{OutboxSchema.NextAttemptAt}] datetime2      NULL,
-                [{OutboxSchema.ProcessedAt}]   datetime2      NULL
+                [{OutboxSchema.ProcessedAt}]   datetime2      NULL,
+                [{OutboxSchema.FailureReason}] nvarchar(2000) NULL
             );
             """;
         await ExecuteAsync(sql);
@@ -62,6 +63,26 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@id", id);
         await command.ExecuteNonQueryAsync();
+    }
+
+    public async Task<FailureState> GetFailureAsync(long id)
+    {
+        var sql = $"""
+            SELECT [{OutboxSchema.Status}], [{OutboxSchema.Attempts}], [{OutboxSchema.FailureReason}]
+            FROM [{Table}] WHERE [{OutboxSchema.Id}] = @id;
+            """;
+
+        await using var connection = new SqlConnection(_connectionString);
+        await connection.OpenAsync();
+        await using var command = new SqlCommand(sql, connection);
+        command.Parameters.AddWithValue("@id", id);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync(), $"Row {id} not found in {Table}.");
+
+        return new FailureState(
+            (OutboxStatus)reader.GetInt32(0),
+            reader.GetInt32(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2));
     }
 
     public async ValueTask DisposeAsync()
@@ -85,4 +106,6 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
         await using var command = new SqlCommand(sql, connection);
         await command.ExecuteNonQueryAsync();
     }
+
+    internal sealed record FailureState(OutboxStatus Status, int Attempts, string? FailureReason);
 }
