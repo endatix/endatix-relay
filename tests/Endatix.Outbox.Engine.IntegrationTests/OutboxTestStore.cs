@@ -45,7 +45,7 @@ internal sealed class OutboxTestStore : IAsyncDisposable
                 "{OutboxSchema.LockedBy}"      varchar(128)  NULL,
                 "{OutboxSchema.NextAttemptAt}" timestamptz   NULL,
                 "{OutboxSchema.ProcessedAt}"   timestamptz   NULL,
-                "{OutboxSchema.FailureReason}" text          NULL
+                "{OutboxSchema.FailureReason}" varchar(2000) NULL
             );
             """;
         await ExecuteAsync(sql);

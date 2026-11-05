@@ -49,19 +49,20 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
         await ExecuteAsync(sql);
     }
 
-    public async Task InsertAsync(long id)
+    public async Task InsertAsync(long id, int attempts = 0)
     {
         var sql = $"""
             INSERT INTO [{Table}] (
                 [{OutboxSchema.Id}], [{OutboxSchema.EventType}], [{OutboxSchema.Payload}], [{OutboxSchema.TenantId}],
                 [{OutboxSchema.OccurredAt}], [{OutboxSchema.SchemaVersion}], [{OutboxSchema.Status}], [{OutboxSchema.Attempts}])
-            VALUES (@id, 'form.created', '{"{}"}', 1, SYSUTCDATETIME(), 1, {(int)OutboxStatus.Pending}, 0);
+            VALUES (@id, 'form.created', '{"{}"}', 1, SYSUTCDATETIME(), 1, {(int)OutboxStatus.Pending}, @attempts);
             """;
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync();
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@id", id);
+        command.Parameters.AddWithValue("@attempts", attempts);
         await command.ExecuteNonQueryAsync();
     }
 

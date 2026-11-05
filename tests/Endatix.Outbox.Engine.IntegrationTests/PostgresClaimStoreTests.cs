@@ -198,6 +198,20 @@ public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task A_reason_with_nul_and_a_surrogate_at_the_cut_is_stored()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1);
+        var reason = "\0" + new string('x', OutboxSchema.FailureReasonMaxLength - 1) + "😀tail";
+
+        await RelayTick.RunWithFailingPublisherAsync(store.ClaimStore, new OutboxPermanentFailureException(reason));
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Failed, row.Status);
+        Assert.Equal(new string('x', OutboxSchema.FailureReasonMaxLength - 1), row.FailureReason);
+    }
+
+    [Fact]
     public async Task Exhausted_retries_store_the_last_error()
     {
         await using var store = await NewStoreAsync();

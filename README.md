@@ -53,7 +53,9 @@ public Task PublishAsync(IOutboxMessage message, CancellationToken cancellationT
 }
 ```
 
-Every other exception keeps the backoff and the retry budget.
+The exception must reach the relay as thrown. Wrapped in another exception, such as an `AggregateException`
+or a retry policy's own type, it counts as an ordinary failure. Every other exception keeps the backoff and the
+retry budget.
 
 A failed row stores why in the `FailureReason` column (`OutboxSchema.FailureReason`):
 
@@ -62,8 +64,9 @@ A failed row stores why in the `FailureReason` column (`OutboxSchema.FailureReas
 | `OutboxPermanentFailureException` | its message |
 | retries ran out | the last error, as `<exception type>: <message>` |
 
-The relay cuts a reason to `OutboxSchema.FailureReasonMaxLength` (2,000) characters. The cause stays in the
-log, with the stack trace.
+The relay drops NUL characters from a reason and cuts it to `OutboxSchema.FailureReasonMaxLength` (2,000)
+characters. The cause stays in the log, with the stack trace. The reason is stored as given, so a publisher
+whose exception messages carry URLs, tokens, or payload text should throw ones that don't.
 
 **Hosts must add the column** before they run 1.2.0 or later: `SqlOutboxClaimStore` writes it every time it
 marks a row failed. While the column is missing that update fails, the tick aborts, and the row is claimed
@@ -72,7 +75,7 @@ backfill.
 
 ```sql
 -- PostgreSQL
-ALTER TABLE "OutboxMessages" ADD COLUMN "FailureReason" text NULL;
+ALTER TABLE "OutboxMessages" ADD COLUMN "FailureReason" varchar(2000) NULL;
 
 -- SQL Server
 ALTER TABLE [OutboxMessages] ADD [FailureReason] nvarchar(2000) NULL;
@@ -88,7 +91,8 @@ builder.Property(m => m.FailureReason)
 
 A host with its own `IOutboxClaimStore` keeps working: the relay calls
 `MarkFailedAsync(message, reason, instanceId, cancellationToken)`, whose default implementation calls the
-three-argument `MarkFailedAsync` and drops the reason. Override it to store the reason.
+three-argument `MarkFailedAsync` and drops the reason. Override it to store the reason. A host test that mocks
+`IOutboxClaimStore` and expects the three-argument call must expect the four-argument one now.
 
 ## Testing a host: clock, poll interval, and wake
 

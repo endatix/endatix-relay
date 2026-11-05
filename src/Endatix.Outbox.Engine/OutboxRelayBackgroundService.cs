@@ -209,12 +209,29 @@ public class OutboxRelayBackgroundService : BackgroundService
     }
 
     private Task MarkFailedAsync(
-        IOutboxClaimStore claimStore, IOutboxMessage message, string reason, CancellationToken cancellationToken)
+        IOutboxClaimStore claimStore, IOutboxMessage message, string reason, CancellationToken cancellationToken) =>
+        claimStore.MarkFailedAsync(message, ToStoredReason(reason), _instanceId, cancellationToken);
+
+    /// <summary>
+    /// Makes a reason safe to store: drops NUL characters, which PostgreSQL <c>text</c> rejects, and cuts it to
+    /// <see cref="OutboxSchema.FailureReasonMaxLength"/> without splitting a surrogate pair, which Npgsql can't encode.
+    /// A reason the database rejects would abort every tick that claims the row, so it would never reach Failed.
+    /// </summary>
+    internal static string ToStoredReason(string reason)
     {
-        var stored = reason.Length > OutboxSchema.FailureReasonMaxLength
-            ? reason[..OutboxSchema.FailureReasonMaxLength]
-            : reason;
-        return claimStore.MarkFailedAsync(message, stored, _instanceId, cancellationToken);
+        var text = reason.Replace("\0", string.Empty, StringComparison.Ordinal);
+        if (text.Length <= OutboxSchema.FailureReasonMaxLength)
+        {
+            return text;
+        }
+
+        var length = OutboxSchema.FailureReasonMaxLength;
+        if (char.IsHighSurrogate(text[length - 1]))
+        {
+            length--;
+        }
+
+        return text[..length];
     }
 
     private void LogLifecycle(string phase)

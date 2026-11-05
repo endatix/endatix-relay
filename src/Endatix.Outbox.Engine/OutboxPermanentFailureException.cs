@@ -4,7 +4,7 @@ namespace Endatix.Outbox.Engine;
 /// Thrown by an <see cref="IIntegrationEventPublisher"/> for a message that can never be delivered, such as a row
 /// of a retired event type. The relay marks the row failed at once, with no further attempts, and stores
 /// <see cref="Exception.Message"/> as its <see cref="OutboxSchema.FailureReason"/>. Any other exception keeps the
-/// usual backoff and retry budget.
+/// usual backoff and retry budget, and so does this one when it reaches the relay wrapped in another exception.
 /// </summary>
 public class OutboxPermanentFailureException : Exception
 {

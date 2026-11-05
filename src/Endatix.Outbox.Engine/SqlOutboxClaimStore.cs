@@ -17,6 +17,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     private const string IdParameter = "@id";
     private const string LockedByParameter = "@lockedBy";
     private const string NowParameter = "@now";
+    private const string FailureReasonParameter = "@failureReason";
 
     private readonly IOutboxConnectionFactory _connectionFactory;
     private readonly OutboxSqlBuilder _sql;
@@ -113,7 +114,7 @@ public sealed class SqlOutboxClaimStore : IOutboxClaimStore
     {
         var affected = await ExecuteAsync(_sql.MarkFailedSql, cancellationToken,
             (IdParameter, message.Id), (LockedByParameter, instanceId), (NowParameter, UtcNow),
-            ("@failureReason", (object?)reason ?? DBNull.Value));
+            (FailureReasonParameter, (object?)reason ?? DBNull.Value));
         WarnIfLeaseLost(affected, message, instanceId, "MarkFailed");
     }
 

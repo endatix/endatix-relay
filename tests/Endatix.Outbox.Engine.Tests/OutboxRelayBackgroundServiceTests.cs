@@ -179,6 +179,29 @@ public class OutboxRelayBackgroundServiceTests
     }
 
     [Fact]
+    public void A_cut_never_splits_a_surrogate_pair()
+    {
+        var reason = new string('x', OutboxSchema.FailureReasonMaxLength - 1) + "😀" + "tail";
+
+        var stored = OutboxRelayBackgroundService.ToStoredReason(reason);
+
+        Assert.Equal(OutboxSchema.FailureReasonMaxLength - 1, stored.Length);
+        Assert.False(char.IsHighSurrogate(stored[^1]));
+    }
+
+    [Fact]
+    public void A_stored_reason_drops_nul_characters()
+    {
+        Assert.Equal("bad byte", OutboxRelayBackgroundService.ToStoredReason("bad\0 byte"));
+    }
+
+    [Fact]
+    public void A_short_reason_is_stored_as_is()
+    {
+        Assert.Equal("Event type is retired.", OutboxRelayBackgroundService.ToStoredReason("Event type is retired."));
+    }
+
+    [Fact]
     public void Permanent_failure_keeps_its_reason_and_cause()
     {
         var cause = new InvalidOperationException("unknown type");

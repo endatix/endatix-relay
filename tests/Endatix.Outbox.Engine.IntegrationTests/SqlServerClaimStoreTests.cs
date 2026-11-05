@@ -64,4 +64,18 @@ public sealed class SqlServerClaimStoreTests(SqlServerFixture fixture)
         Assert.Equal(OutboxStatus.Failed, row.Status);
         Assert.Equal(OutboxSchema.FailureReasonMaxLength, row.FailureReason!.Length);
     }
+
+    [SqlServerFact]
+    public async Task Exhausted_retries_store_the_last_error()
+    {
+        await using var store = new SqlServerOutboxTestStore(fixture.ConnectionString, TimeProvider.System);
+        await store.CreateTableAsync();
+        await store.InsertAsync(1, attempts: new OutboxOptions().MaxAttempts - 1);
+
+        await RelayTick.RunWithFailingPublisherAsync(store.ClaimStore, new InvalidOperationException("broker down"));
+
+        var row = await store.GetFailureAsync(1);
+        Assert.Equal(OutboxStatus.Failed, row.Status);
+        Assert.Equal("System.InvalidOperationException: broker down", row.FailureReason);
+    }
 }

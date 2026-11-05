@@ -31,7 +31,8 @@ public interface IOutboxClaimStore
     Task RescheduleAsync(IOutboxMessage message, DateTimeOffset nextAttemptAt, string instanceId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Marks a row as terminally failed with no reason and releases its lease. Guarded by lease
+    /// Marks a row as terminally failed with no reason and releases its lease. Kept for claim stores written against
+    /// 1.1; the relay calls the overload that takes a reason. Guarded by lease
     /// ownership (<paramref name="instanceId"/>).
     /// </summary>
     Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken);
