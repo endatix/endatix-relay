@@ -6,6 +6,9 @@ namespace Endatix.Outbox.Engine;
 /// </summary>
 public interface IIntegrationEventPublisher
 {
-    /// <summary>Publishes the message. Throwing signals failure; the relay then reschedules or fails it.</summary>
+    /// <summary>
+    /// Publishes the message. Throwing signals failure; the relay then reschedules or fails it. Throw
+    /// <see cref="OutboxPermanentFailureException"/> for a message that can never be delivered, to fail it at once.
+    /// </summary>
     Task PublishAsync(IOutboxMessage message, CancellationToken cancellationToken);
 }

@@ -51,6 +51,6 @@ public enum OutboxStatus
     /// <summary>Delivered successfully.</summary>
     Sent = 1,
 
-    /// <summary>Max attempts exhausted; needs operator attention.</summary>
+    /// <summary>Max attempts exhausted or a permanent failure reported; needs operator attention.</summary>
     Failed = 2,
 }
