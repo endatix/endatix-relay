@@ -189,14 +189,14 @@ public class OutboxRelayBackgroundService : BackgroundService
             _logger.LogError(
                 ex, "Outbox message {MessageId} ({EventType}) failed permanently on attempt {Attempt}: {Reason}",
                 message.Id, message.EventType, message.Attempts + 1, permanent.Message);
-            await MarkFailedAsync(claimStore, message, permanent.Message, cancellationToken);
+            await claimStore.MarkFailedAsync(message, _instanceId, cancellationToken);
         }
         else if (message.Attempts + 1 >= _options.MaxAttempts)
         {
             _logger.LogError(
                 ex, "Outbox message {MessageId} ({EventType}) failed permanently after {Attempts} attempts.",
                 message.Id, message.EventType, message.Attempts + 1);
-            await MarkFailedAsync(claimStore, message, $"{ex.GetType().FullName}: {ex.Message}", cancellationToken);
+            await claimStore.MarkFailedAsync(message, _instanceId, cancellationToken);
         }
         else
         {
@@ -206,32 +206,6 @@ public class OutboxRelayBackgroundService : BackgroundService
                 message.Id, message.EventType, message.Attempts + 1, nextAttemptAt);
             await claimStore.RescheduleAsync(message, nextAttemptAt, _instanceId, cancellationToken);
         }
-    }
-
-    private Task MarkFailedAsync(
-        IOutboxClaimStore claimStore, IOutboxMessage message, string reason, CancellationToken cancellationToken) =>
-        claimStore.MarkFailedAsync(message, ToStoredReason(reason), _instanceId, cancellationToken);
-
-    /// <summary>
-    /// Makes a reason safe to store: drops NUL characters, which PostgreSQL <c>text</c> rejects, and cuts it to
-    /// <see cref="OutboxSchema.FailureReasonMaxLength"/> without splitting a surrogate pair, which Npgsql can't encode.
-    /// A reason the database rejects would abort every tick that claims the row, so it would never reach Failed.
-    /// </summary>
-    internal static string ToStoredReason(string reason)
-    {
-        var text = reason.Replace("\0", string.Empty, StringComparison.Ordinal);
-        if (text.Length <= OutboxSchema.FailureReasonMaxLength)
-        {
-            return text;
-        }
-
-        var length = OutboxSchema.FailureReasonMaxLength;
-        if (char.IsHighSurrogate(text[length - 1]))
-        {
-            length--;
-        }
-
-        return text[..length];
     }
 
     private void LogLifecycle(string phase)

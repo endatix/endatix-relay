@@ -36,17 +36,6 @@ public static class OutboxSchema
     public const string NextAttemptAt = nameof(NextAttemptAt);
     public const string ProcessedAt = nameof(ProcessedAt);
 #pragma warning restore CS1591
-
-    /// <summary>
-    /// Why a <see cref="OutboxStatus.Failed"/> row failed: the reason of an <see cref="OutboxPermanentFailureException"/>,
-    /// or the last error once retries run out. Nullable text, at least <see cref="FailureReasonMaxLength"/> characters
-    /// (PostgreSQL <c>varchar(2000)</c> or <c>text</c>, SQL Server <c>nvarchar(2000)</c>). Hosts add it to their
-    /// table; the engine writes it when it marks a row failed.
-    /// </summary>
-    public const string FailureReason = nameof(FailureReason);
-
-    /// <summary>The longest <see cref="FailureReason"/> the relay writes; a longer reason is cut to this length.</summary>
-    public const int FailureReasonMaxLength = 2000;
 }
 
 /// <summary>

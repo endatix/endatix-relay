@@ -35,7 +35,7 @@ the host calls `AddSqlOutboxClaimStore(...)` with its **dialect**, a **connectio
 `_ => new NpgsqlConnection(connString)`), and optionally the **table name** (both hosts must agree). The host
 also owns the table's existence (migration) and EF mapping for the capture/write side.
 
-## Permanent failures and the failure reason
+## Permanent failures
 
 A publish that throws is retried with exponential backoff until `MaxAttempts` (default 8) runs out; then the row
 is marked `Failed`. A publisher that knows a message can never be delivered, such as a row of a retired event
@@ -53,46 +53,10 @@ public Task PublishAsync(IOutboxMessage message, CancellationToken cancellationT
 }
 ```
 
-The exception must reach the relay as thrown. Wrapped in another exception, such as an `AggregateException`
-or a retry policy's own type, it counts as an ordinary failure. Every other exception keeps the backoff and the
-retry budget.
-
-A failed row stores why in the `FailureReason` column (`OutboxSchema.FailureReason`):
-
-| How the row failed | `FailureReason` |
-|---|---|
-| `OutboxPermanentFailureException` | its message |
-| retries ran out | the last error, as `<exception type>: <message>` |
-
-The relay drops NUL characters from a reason and cuts it to `OutboxSchema.FailureReasonMaxLength` (2,000)
-characters. The cause stays in the log, with the stack trace. The reason is stored as given, so a publisher
-whose exception messages carry URLs, tokens, or payload text should throw ones that don't.
-
-**Hosts must add the column** before they run 1.2.0 or later: `SqlOutboxClaimStore` writes it every time it
-marks a row failed. While the column is missing that update fails, the tick aborts, and the row is claimed
-again once its lease expires, so it never reaches `Failed`. The column is nullable, so existing rows need no
-backfill.
-
-```sql
--- PostgreSQL
-ALTER TABLE "OutboxMessages" ADD COLUMN "FailureReason" varchar(2000) NULL;
-
--- SQL Server
-ALTER TABLE [OutboxMessages] ADD [FailureReason] nvarchar(2000) NULL;
-```
-
-With EF Core, map it on the host's outbox entity and add a migration:
-
-```csharp
-builder.Property(m => m.FailureReason)
-    .HasColumnName(OutboxSchema.FailureReason)
-    .HasMaxLength(OutboxSchema.FailureReasonMaxLength);
-```
-
-A host with its own `IOutboxClaimStore` keeps working: the relay calls
-`MarkFailedAsync(message, reason, instanceId, cancellationToken)`, whose default implementation calls the
-three-argument `MarkFailedAsync` and drops the reason. Override it to store the reason. A host test that mocks
-`IOutboxClaimStore` and expects the three-argument call must expect the four-argument one now.
+The relay logs the reason at `Error`, with the message id and event type; the row itself stores no reason. The
+exception must reach the relay as thrown. Wrapped in another exception, such as an `AggregateException` or a
+retry policy's own type, it counts as an ordinary failure. Every other exception keeps the backoff and the retry
+budget. No schema change is needed.
 
 ## Testing a host: clock, poll interval, and wake
 

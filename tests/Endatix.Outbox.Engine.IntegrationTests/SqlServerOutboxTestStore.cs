@@ -42,34 +42,32 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
                 [{OutboxSchema.LockedUntil}]   datetime2      NULL,
                 [{OutboxSchema.LockedBy}]      nvarchar(128)  NULL,
                 [{OutboxSchema.NextAttemptAt}] datetime2      NULL,
-                [{OutboxSchema.ProcessedAt}]   datetime2      NULL,
-                [{OutboxSchema.FailureReason}] nvarchar(2000) NULL
+                [{OutboxSchema.ProcessedAt}]   datetime2      NULL
             );
             """;
         await ExecuteAsync(sql);
     }
 
-    public async Task InsertAsync(long id, int attempts = 0)
+    public async Task InsertAsync(long id)
     {
         var sql = $"""
             INSERT INTO [{Table}] (
                 [{OutboxSchema.Id}], [{OutboxSchema.EventType}], [{OutboxSchema.Payload}], [{OutboxSchema.TenantId}],
                 [{OutboxSchema.OccurredAt}], [{OutboxSchema.SchemaVersion}], [{OutboxSchema.Status}], [{OutboxSchema.Attempts}])
-            VALUES (@id, 'form.created', '{"{}"}', 1, SYSUTCDATETIME(), 1, {(int)OutboxStatus.Pending}, @attempts);
+            VALUES (@id, 'form.created', '{"{}"}', 1, SYSUTCDATETIME(), 1, {(int)OutboxStatus.Pending}, 0);
             """;
 
         await using var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync();
         await using var command = new SqlCommand(sql, connection);
         command.Parameters.AddWithValue("@id", id);
-        command.Parameters.AddWithValue("@attempts", attempts);
         await command.ExecuteNonQueryAsync();
     }
 
-    public async Task<FailureState> GetFailureAsync(long id)
+    public async Task<OutcomeState> GetOutcomeAsync(long id)
     {
         var sql = $"""
-            SELECT [{OutboxSchema.Status}], [{OutboxSchema.Attempts}], [{OutboxSchema.FailureReason}]
+            SELECT [{OutboxSchema.Status}], [{OutboxSchema.Attempts}]
             FROM [{Table}] WHERE [{OutboxSchema.Id}] = @id;
             """;
 
@@ -80,10 +78,7 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
         await using var reader = await command.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync(), $"Row {id} not found in {Table}.");
 
-        return new FailureState(
-            (OutboxStatus)reader.GetInt32(0),
-            reader.GetInt32(1),
-            reader.IsDBNull(2) ? null : reader.GetString(2));
+        return new OutcomeState((OutboxStatus)reader.GetInt32(0), reader.GetInt32(1));
     }
 
     public async ValueTask DisposeAsync()
@@ -108,5 +103,5 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
         await command.ExecuteNonQueryAsync();
     }
 
-    internal sealed record FailureState(OutboxStatus Status, int Attempts, string? FailureReason);
+    internal sealed record OutcomeState(OutboxStatus Status, int Attempts);
 }

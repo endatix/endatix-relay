@@ -100,8 +100,7 @@ public class OutboxRelayBackgroundServiceTests
 
         await _claimStore.Received(1).RescheduleAsync(
             message, Arg.Is<DateTimeOffset>(d => d > DateTimeOffset.UtcNow), Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _claimStore.DidNotReceive().MarkFailedAsync(
-            message, Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
@@ -117,14 +116,13 @@ public class OutboxRelayBackgroundServiceTests
 
         await relay.ProcessOnceAsync(services, CancellationToken.None);
 
-        await _claimStore.Received(1).MarkFailedAsync(
-            message, "System.InvalidOperationException: boom", Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().RescheduleAsync(
             message, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task Permanent_failure_marks_failed_at_once_with_its_reason()
+    public async Task Permanent_failure_marks_failed_at_once()
     {
         GateReturns(true);
         var message = new FakeOutboxMessage(1, Attempts: 0);
@@ -135,8 +133,7 @@ public class OutboxRelayBackgroundServiceTests
 
         await relay.ProcessOnceAsync(services, CancellationToken.None);
 
-        await _claimStore.Received(1).MarkFailedAsync(
-            message, "Event type 'form.retired' is retired.", Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().RescheduleAsync(
             message, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
         await _claimStore.DidNotReceive().MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
@@ -149,7 +146,7 @@ public class OutboxRelayBackgroundServiceTests
         var message = new FakeOutboxMessage(5, EventType: "form.retired");
         ClaimReturns(message);
         _publisher.PublishAsync(message, Arg.Any<CancellationToken>())
-            .Returns(Task.FromException(new OutboxPermanentFailureException("retired")));
+            .Returns(Task.FromException(new OutboxPermanentFailureException("no longer published")));
         var logger = new RecordingLogger<OutboxRelayBackgroundService>();
         var (relay, services) = Build(logger: logger);
 
@@ -158,47 +155,7 @@ public class OutboxRelayBackgroundServiceTests
         var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Error);
         Assert.Contains("5", entry.Message);
         Assert.Contains("form.retired", entry.Message);
-        Assert.Contains("retired", entry.Message);
-    }
-
-    [Fact]
-    public async Task A_long_failure_reason_is_cut_to_the_column_length()
-    {
-        GateReturns(true);
-        var message = new FakeOutboxMessage(1);
-        ClaimReturns(message);
-        _publisher.PublishAsync(message, Arg.Any<CancellationToken>())
-            .Returns(Task.FromException(new OutboxPermanentFailureException(new string('x', 5000))));
-        var (relay, services) = Build();
-
-        await relay.ProcessOnceAsync(services, CancellationToken.None);
-
-        await _claimStore.Received(1).MarkFailedAsync(
-            message, Arg.Is<string?>(r => r!.Length == OutboxSchema.FailureReasonMaxLength),
-            Arg.Any<string>(), Arg.Any<CancellationToken>());
-    }
-
-    [Fact]
-    public void A_cut_never_splits_a_surrogate_pair()
-    {
-        var reason = new string('x', OutboxSchema.FailureReasonMaxLength - 1) + "😀" + "tail";
-
-        var stored = OutboxRelayBackgroundService.ToStoredReason(reason);
-
-        Assert.Equal(OutboxSchema.FailureReasonMaxLength - 1, stored.Length);
-        Assert.False(char.IsHighSurrogate(stored[^1]));
-    }
-
-    [Fact]
-    public void A_stored_reason_drops_nul_characters()
-    {
-        Assert.Equal("bad byte", OutboxRelayBackgroundService.ToStoredReason("bad\0 byte"));
-    }
-
-    [Fact]
-    public void A_short_reason_is_stored_as_is()
-    {
-        Assert.Equal("Event type is retired.", OutboxRelayBackgroundService.ToStoredReason("Event type is retired."));
+        Assert.Contains("no longer published", entry.Message);
     }
 
     [Fact]
@@ -235,8 +192,7 @@ public class OutboxRelayBackgroundServiceTests
         await _publisher.DidNotReceive().PublishAsync(m2, Arg.Any<CancellationToken>());
         // ...and a MarkSent failure is never rerouted to reschedule/dead-letter.
         await _claimStore.DidNotReceive().RescheduleAsync(m1, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
-        await _claimStore.DidNotReceive().MarkFailedAsync(
-            m1, Arg.Any<string?>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().MarkFailedAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

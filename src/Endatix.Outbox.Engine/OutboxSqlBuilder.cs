@@ -42,7 +42,7 @@ internal sealed class OutboxSqlBuilder
     /// <summary>Increments attempts, sets the next-attempt gate, releases the lease (row stays pending).</summary>
     public string RescheduleSql { get; }
 
-    /// <summary>Increments attempts, marks the row failed with its reason, releases its lease.</summary>
+    /// <summary>Increments attempts, marks the row failed, releases its lease.</summary>
     public string MarkFailedSql { get; }
 
     private string BuildClaimSql()
@@ -106,7 +106,7 @@ internal sealed class OutboxSqlBuilder
     private string BuildMarkFailedSql() =>
         $"UPDATE {_table} SET {Q(OutboxSchema.Attempts)} = {Q(OutboxSchema.Attempts)} + 1, " +
         $"{Q(OutboxSchema.Status)} = {(int)OutboxStatus.Failed}, {Q(OutboxSchema.ProcessedAt)} = @now, " +
-        $"{Q(OutboxSchema.FailureReason)} = @failureReason, {ReleaseLease()} {PendingGuard()}";
+        $"{ReleaseLease()} {PendingGuard()}";
 
     // Only the current lease owner may mutate a pending row — replaces the entity-level EnsurePending guard
     // with a DB-enforced one that also checks lease ownership, so an expired-lease instance can't clobber a
