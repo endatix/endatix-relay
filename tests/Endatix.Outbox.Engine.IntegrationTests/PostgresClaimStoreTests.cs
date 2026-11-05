@@ -167,6 +167,20 @@ public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task Permanent_failure_leaves_the_row_pending_when_the_mark_fails()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1, eventType: "form.retired");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => RelayTick.RunWithFailingPublisherAsync(
+            new MarkFailedThrowsClaimStore(store.ClaimStore), new OutboxPermanentFailureException("retired")));
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Pending, row.Status);
+        Assert.Equal(0, row.Attempts);
+    }
+
+    [Fact]
     public async Task Ordinary_failure_reschedules_the_row_behind_its_backoff()
     {
         var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);

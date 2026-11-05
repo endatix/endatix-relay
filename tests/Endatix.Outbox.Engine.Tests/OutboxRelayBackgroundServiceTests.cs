@@ -176,6 +176,47 @@ public class OutboxRelayBackgroundServiceTests
     }
 
     [Fact]
+    public async Task Permanent_failure_is_not_logged_as_failed_when_the_mark_fails()
+    {
+        var message = new FakeOutboxMessage(1, Attempts: 0);
+
+        var logger = await RunWithFailingMarkFailedAsync(message, new OutboxPermanentFailureException("retired"));
+
+        AssertNoFailedPermanentlyLog(logger);
+    }
+
+    [Fact]
+    public async Task Exhausted_retries_are_not_logged_as_failed_when_the_mark_fails()
+    {
+        var message = new FakeOutboxMessage(1, Attempts: 7); // attempts+1 == MaxAttempts
+
+        var logger = await RunWithFailingMarkFailedAsync(message, new InvalidOperationException("boom"));
+
+        AssertNoFailedPermanentlyLog(logger);
+    }
+
+    private async Task<RecordingLogger<OutboxRelayBackgroundService>> RunWithFailingMarkFailedAsync(
+        FakeOutboxMessage message, Exception publishFailure)
+    {
+        GateReturns(true);
+        ClaimReturns(message);
+        _publisher.PublishAsync(message, Arg.Any<CancellationToken>()).Returns(Task.FromException(publishFailure));
+        _claimStore.MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("store down")));
+        var logger = new RecordingLogger<OutboxRelayBackgroundService>();
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 8 }, logger);
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => relay.ProcessOnceAsync(services, CancellationToken.None));
+        Assert.Equal("store down", thrown.Message);
+        return logger;
+    }
+
+    private static void AssertNoFailedPermanentlyLog(RecordingLogger<OutboxRelayBackgroundService> logger) =>
+        Assert.DoesNotContain(
+            logger.Entries, e => e.Level == LogLevel.Error && e.Message.Contains("failed permanently"));
+
+    [Fact]
     public void Permanent_failure_keeps_its_reason_and_cause()
     {
         var cause = new InvalidOperationException("unknown type");

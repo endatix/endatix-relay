@@ -184,19 +184,20 @@ public class OutboxRelayBackgroundService : BackgroundService
     private async Task HandlePublishFailureAsync(
         IOutboxClaimStore claimStore, IOutboxMessage message, Exception ex, CancellationToken cancellationToken)
     {
+        // Log "failed permanently" only once the row is marked: if the mark throws, the row stays pending.
         if (ex is OutboxPermanentFailureException permanent)
         {
+            await claimStore.MarkFailedAsync(message, _instanceId, cancellationToken);
             _logger.LogError(
                 ex, "Outbox message {MessageId} ({EventType}) failed permanently on attempt {Attempt}: {Reason}",
                 message.Id, message.EventType, message.Attempts + 1, permanent.Message);
-            await claimStore.MarkFailedAsync(message, _instanceId, cancellationToken);
         }
         else if (message.Attempts + 1 >= _options.MaxAttempts)
         {
+            await claimStore.MarkFailedAsync(message, _instanceId, cancellationToken);
             _logger.LogError(
                 ex, "Outbox message {MessageId} ({EventType}) failed permanently after {Attempts} attempts.",
                 message.Id, message.EventType, message.Attempts + 1);
-            await claimStore.MarkFailedAsync(message, _instanceId, cancellationToken);
         }
         else
         {
