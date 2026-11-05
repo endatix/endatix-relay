@@ -67,7 +67,7 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
     public async Task<OutcomeState> GetOutcomeAsync(long id)
     {
         var sql = $"""
-            SELECT [{OutboxSchema.Status}], [{OutboxSchema.Attempts}]
+            SELECT [{OutboxSchema.Status}], [{OutboxSchema.Attempts}], [{OutboxSchema.LockedBy}], [{OutboxSchema.NextAttemptAt}]
             FROM [{Table}] WHERE [{OutboxSchema.Id}] = @id;
             """;
 
@@ -78,7 +78,11 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
         await using var reader = await command.ExecuteReaderAsync();
         Assert.True(await reader.ReadAsync(), $"Row {id} not found in {Table}.");
 
-        return new OutcomeState((OutboxStatus)reader.GetInt32(0), reader.GetInt32(1));
+        return new OutcomeState(
+            Status: (OutboxStatus)reader.GetInt32(0),
+            Attempts: reader.GetInt32(1),
+            LockedBy: reader.IsDBNull(2) ? null : reader.GetString(2),
+            NextAttemptAt: reader.IsDBNull(3) ? null : reader.GetDateTime(3));
     }
 
     public async ValueTask DisposeAsync()
@@ -103,5 +107,5 @@ internal sealed class SqlServerOutboxTestStore : IAsyncDisposable
         await command.ExecuteNonQueryAsync();
     }
 
-    internal sealed record OutcomeState(OutboxStatus Status, int Attempts);
+    internal sealed record OutcomeState(OutboxStatus Status, int Attempts, string? LockedBy, DateTime? NextAttemptAt);
 }

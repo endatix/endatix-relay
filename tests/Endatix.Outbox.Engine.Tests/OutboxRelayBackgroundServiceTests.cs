@@ -143,7 +143,7 @@ public class OutboxRelayBackgroundServiceTests
     public async Task Permanent_failure_is_logged_as_an_error_with_the_message_and_reason()
     {
         GateReturns(true);
-        var message = new FakeOutboxMessage(5, EventType: "form.retired");
+        var message = new FakeOutboxMessage(4711, EventType: "form.retired");
         ClaimReturns(message);
         _publisher.PublishAsync(message, Arg.Any<CancellationToken>())
             .Returns(Task.FromException(new OutboxPermanentFailureException("no longer published")));
@@ -153,7 +153,7 @@ public class OutboxRelayBackgroundServiceTests
         await relay.ProcessOnceAsync(services, CancellationToken.None);
 
         var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Error);
-        Assert.Contains("5", entry.Message);
+        Assert.Contains("4711", entry.Message);
         Assert.Contains("form.retired", entry.Message);
         Assert.Contains("no longer published", entry.Message);
     }

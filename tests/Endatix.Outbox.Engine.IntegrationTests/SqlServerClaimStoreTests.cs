@@ -32,6 +32,7 @@ public sealed class SqlServerClaimStoreTests(SqlServerFixture fixture)
         var row = await store.GetOutcomeAsync(1);
         Assert.Equal(OutboxStatus.Failed, row.Status);
         Assert.Equal(1, row.Attempts);
+        Assert.Null(row.LockedBy);
     }
 
     [SqlServerFact]
@@ -46,6 +47,6 @@ public sealed class SqlServerClaimStoreTests(SqlServerFixture fixture)
         var row = await store.GetOutcomeAsync(1);
         Assert.Equal(OutboxStatus.Pending, row.Status);
         Assert.Equal(1, row.Attempts);
+        Assert.NotNull(row.NextAttemptAt);
     }
-
 }

@@ -18,7 +18,7 @@ internal static class RelayTick
             .AddSingleton<IOutboxRelayGate, AlwaysOnOutboxRelayGate>()
             .BuildServiceProvider();
 
-        var relay = new OutboxRelayBackgroundService(
+        using var relay = new OutboxRelayBackgroundService(
             services.GetRequiredService<IServiceScopeFactory>(),
             Options.Create(new OutboxOptions()),
             NullLogger<OutboxRelayBackgroundService>.Instance);
