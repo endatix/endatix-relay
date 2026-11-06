@@ -36,17 +36,31 @@ public sealed class SqlServerClaimStoreTests(SqlServerFixture fixture)
     }
 
     [SqlServerFact]
-    public async Task Ordinary_failure_reschedules_the_row()
+    public async Task Ordinary_failure_reschedules_the_row_behind_its_backoff()
     {
-        await using var store = new SqlServerOutboxTestStore(fixture.ConnectionString, TimeProvider.System);
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var store = new SqlServerOutboxTestStore(fixture.ConnectionString, clock);
         await store.CreateTableAsync();
         await store.InsertAsync(1);
+        var firstBackoff = TimeSpan.FromSeconds(new OutboxOptions().BackoffBaseSeconds);
 
-        await RelayTick.RunWithFailingPublisherAsync(store.ClaimStore, new InvalidOperationException("broker down"));
+        await RelayTick.RunWithFailingPublisherAsync(
+            store.ClaimStore, new InvalidOperationException("broker down"), clock);
 
         var row = await store.GetOutcomeAsync(1);
         Assert.Equal(OutboxStatus.Pending, row.Status);
         Assert.Equal(1, row.Attempts);
         Assert.NotNull(row.NextAttemptAt);
+
+        // Step past datetime's 1/300 s rounding first (see GiveBackAtNow): a retry scheduled at "now" or earlier is
+        // then reliably due, so only a real backoff keeps the row unclaimable here.
+        clock.Advance(GiveBackAtNow.Advance);
+        Assert.Empty(await ClaimAsync(store));
+
+        clock.Advance(firstBackoff);
+        Assert.Equal([1L], (await ClaimAsync(store)).Select(m => m.Id));
     }
+
+    private static Task<IReadOnlyList<IOutboxMessage>> ClaimAsync(SqlServerOutboxTestStore store) =>
+        store.ClaimStore.ClaimBatchAsync("instance-B", TimeSpan.FromMinutes(1), 1, CancellationToken.None);
 }
