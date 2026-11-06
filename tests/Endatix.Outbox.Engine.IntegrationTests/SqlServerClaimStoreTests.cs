@@ -51,10 +51,13 @@ public sealed class SqlServerClaimStoreTests(SqlServerFixture fixture)
         Assert.Equal(OutboxStatus.Pending, row.Status);
         Assert.Equal(1, row.Attempts);
         Assert.NotNull(row.NextAttemptAt);
+
+        // Step past datetime's 1/300 s rounding first (see GiveBackAtNow): a retry scheduled at "now" or earlier is
+        // then reliably due, so only a real backoff keeps the row unclaimable here.
+        clock.Advance(GiveBackAtNow.Advance);
         Assert.Empty(await ClaimAsync(store));
 
-        // Past the backoff by more than datetime's 1/300 s rounding (see GiveBackAtNow).
-        clock.Advance(firstBackoff + GiveBackAtNow.Advance);
+        clock.Advance(firstBackoff);
         Assert.Equal([1L], (await ClaimAsync(store)).Select(m => m.Id));
     }
 
