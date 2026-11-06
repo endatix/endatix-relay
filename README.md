@@ -13,6 +13,7 @@ sits below both in the dependency graph.
   - `IOutboxMessage` — read shape of an outbox row.
   - `IOutboxClaimStore` — DB-arbitrated claim (`SKIP LOCKED`/`READPAST` + lease) + mark sent/reschedule/failed.
   - `IIntegrationEventPublisher` — delivers a claimed message (webhook in-process, DAPR in the worker).
+    It throws `OutboxPermanentFailureException` for a message that can never be delivered.
 - **`OutboxRelayBackgroundService`** — the `claim → publish → mark` loop. Scope-per-tick, exponential
   backoff, lease-based crash recovery, at-least-once.
 - **OpenFeature gate** — `IOutboxRelayGate` / `OpenFeatureOutboxRelayGate` evaluate the
@@ -33,6 +34,29 @@ supplies `IFeatureClient`) — the host wires those (webhook vs DAPR; in-memory 
 the host calls `AddSqlOutboxClaimStore(...)` with its **dialect**, a **connection factory** (e.g.
 `_ => new NpgsqlConnection(connString)`), and optionally the **table name** (both hosts must agree). The host
 also owns the table's existence (migration) and EF mapping for the capture/write side.
+
+## Permanent failures
+
+A publish that throws is retried with exponential backoff until `MaxAttempts` (default 8) runs out; then the row
+is marked `Failed`. A publisher that knows a message can never be delivered, such as a row of a retired event
+type, throws `OutboxPermanentFailureException` instead. The relay marks that row `Failed` at once, on the attempt
+that threw, and makes no further attempts:
+
+```csharp
+public Task PublishAsync(IOutboxMessage message, CancellationToken cancellationToken)
+{
+    if (IsRetired(message.EventType))
+    {
+        throw new OutboxPermanentFailureException($"Event type '{message.EventType}' is retired.");
+    }
+    // ...
+}
+```
+
+The relay logs the reason at `Error`, with the message id and event type; the row itself stores no reason. The
+exception must reach the relay as thrown. Wrapped in another exception, such as an `AggregateException` or a
+retry policy's own type, it counts as an ordinary failure. Every other exception keeps the backoff and the retry
+budget. No schema change is needed.
 
 ## Testing a host: clock, poll interval, and wake
 

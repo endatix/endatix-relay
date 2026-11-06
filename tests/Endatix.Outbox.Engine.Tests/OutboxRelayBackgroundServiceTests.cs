@@ -122,6 +122,148 @@ public class OutboxRelayBackgroundServiceTests
     }
 
     [Fact]
+    public async Task Permanent_failure_marks_failed_at_once()
+    {
+        GateReturns(true);
+        var message = new FakeOutboxMessage(1, Attempts: 0);
+        ClaimReturns(message);
+        _publisher.PublishAsync(message, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new OutboxPermanentFailureException("Event type 'form.retired' is retired.")));
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 8 });
+
+        await relay.ProcessOnceAsync(services, CancellationToken.None);
+
+        await _claimStore.Received(1).MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().RescheduleAsync(
+            message, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().MarkSentAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Derived_permanent_failure_marks_failed_at_once()
+    {
+        GateReturns(true);
+        var message = new FakeOutboxMessage(1, Attempts: 0);
+        ClaimReturns(message);
+        _publisher.PublishAsync(message, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new RetiredEventTypeException("form.retired")));
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 8 });
+
+        await relay.ProcessOnceAsync(services, CancellationToken.None);
+
+        await _claimStore.Received(1).MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().RescheduleAsync(
+            message, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Permanent_failure_does_not_stop_the_rest_of_the_batch()
+    {
+        GateReturns(true);
+        var m1 = new FakeOutboxMessage(1, Attempts: 0);
+        var m2 = new FakeOutboxMessage(2, Attempts: 0);
+        ClaimReturns(m1, m2);
+        _publisher.PublishAsync(m1, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new OutboxPermanentFailureException("retired")));
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 8 });
+
+        var processed = await relay.ProcessOnceAsync(services, CancellationToken.None);
+
+        Assert.Equal(2, processed);
+        await _claimStore.Received(1).MarkFailedAsync(m1, Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _publisher.Received(1).PublishAsync(m2, Arg.Any<CancellationToken>());
+        await _claimStore.Received(1).MarkSentAsync(m2, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Wrapped_permanent_failure_reschedules_as_an_ordinary_failure()
+    {
+        GateReturns(true);
+        var message = new FakeOutboxMessage(1, Attempts: 0);
+        ClaimReturns(message);
+        var wrapped = new InvalidOperationException("publisher wrapper", new OutboxPermanentFailureException("retired"));
+        _publisher.PublishAsync(message, Arg.Any<CancellationToken>()).Returns(Task.FromException(wrapped));
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 8 });
+
+        await relay.ProcessOnceAsync(services, CancellationToken.None);
+
+        await _claimStore.Received(1).RescheduleAsync(
+            message, Arg.Any<DateTimeOffset>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _claimStore.DidNotReceive().MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Permanent_failure_is_logged_as_an_error_with_the_message_and_reason()
+    {
+        GateReturns(true);
+        var message = new FakeOutboxMessage(4711, EventType: "form.retired");
+        ClaimReturns(message);
+        _publisher.PublishAsync(message, Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new OutboxPermanentFailureException("no longer published")));
+        var logger = new RecordingLogger<OutboxRelayBackgroundService>();
+        var (relay, services) = Build(logger: logger);
+
+        await relay.ProcessOnceAsync(services, CancellationToken.None);
+
+        var entry = Assert.Single(logger.Entries, e => e.Level == LogLevel.Error);
+        Assert.Contains("4711", entry.Message);
+        Assert.Contains("form.retired", entry.Message);
+        Assert.Contains("no longer published", entry.Message);
+    }
+
+    [Fact]
+    public async Task Permanent_failure_is_not_logged_as_failed_when_the_mark_fails()
+    {
+        var message = new FakeOutboxMessage(1, Attempts: 0);
+
+        var logger = await RunWithFailingMarkFailedAsync(message, new OutboxPermanentFailureException("retired"));
+
+        AssertNoFailedPermanentlyLog(logger);
+    }
+
+    [Fact]
+    public async Task Exhausted_retries_are_not_logged_as_failed_when_the_mark_fails()
+    {
+        var message = new FakeOutboxMessage(1, Attempts: 7); // attempts+1 == MaxAttempts
+
+        var logger = await RunWithFailingMarkFailedAsync(message, new InvalidOperationException("boom"));
+
+        AssertNoFailedPermanentlyLog(logger);
+    }
+
+    private async Task<RecordingLogger<OutboxRelayBackgroundService>> RunWithFailingMarkFailedAsync(
+        FakeOutboxMessage message, Exception publishFailure)
+    {
+        GateReturns(true);
+        ClaimReturns(message);
+        _publisher.PublishAsync(message, Arg.Any<CancellationToken>()).Returns(Task.FromException(publishFailure));
+        _claimStore.MarkFailedAsync(message, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new InvalidOperationException("store down")));
+        var logger = new RecordingLogger<OutboxRelayBackgroundService>();
+        var (relay, services) = Build(new OutboxOptions { MaxAttempts = 8 }, logger);
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => relay.ProcessOnceAsync(services, CancellationToken.None));
+        Assert.Equal("store down", thrown.Message);
+        return logger;
+    }
+
+    private static void AssertNoFailedPermanentlyLog(RecordingLogger<OutboxRelayBackgroundService> logger) =>
+        Assert.DoesNotContain(
+            logger.Entries, e => e.Level == LogLevel.Error && e.Message.Contains("failed permanently"));
+
+    [Fact]
+    public void Permanent_failure_keeps_its_reason_and_cause()
+    {
+        var cause = new InvalidOperationException("unknown type");
+
+        var ex = new OutboxPermanentFailureException("retired", cause);
+
+        Assert.Equal("retired", ex.Message);
+        Assert.Same(cause, ex.InnerException);
+    }
+
+    [Fact]
     public async Task MarkSent_failure_aborts_the_tick_without_dead_lettering_or_storming_the_batch()
     {
         GateReturns(true);
@@ -230,4 +372,7 @@ public class OutboxRelayBackgroundServiceTests
 
         Assert.Equal(now.AddSeconds(expectedSeconds), next);
     }
+
+    private sealed class RetiredEventTypeException(string eventType)
+        : OutboxPermanentFailureException($"Event type '{eventType}' is retired.");
 }

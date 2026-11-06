@@ -31,8 +31,8 @@ public interface IOutboxClaimStore
     Task RescheduleAsync(IOutboxMessage message, DateTimeOffset nextAttemptAt, string instanceId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Marks a row as terminally failed (max attempts exhausted) and releases its lease. Guarded by lease
-    /// ownership (<paramref name="instanceId"/>).
+    /// Marks a row as terminally failed (max attempts exhausted, or the publisher reported a permanent failure) and
+    /// releases its lease. Guarded by lease ownership (<paramref name="instanceId"/>).
     /// </summary>
     Task MarkFailedAsync(IOutboxMessage message, string instanceId, CancellationToken cancellationToken);
 }

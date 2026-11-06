@@ -152,6 +152,57 @@ public sealed class PostgresClaimStoreTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task Permanent_failure_fails_the_row_on_its_first_attempt()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1, eventType: "form.retired");
+
+        await RelayTick.RunWithFailingPublisherAsync(
+            store.ClaimStore, new OutboxPermanentFailureException("Event type 'form.retired' is retired."));
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Failed, row.Status);
+        Assert.Equal(1, row.Attempts);
+        Assert.Null(row.LockedBy);
+    }
+
+    [Fact]
+    public async Task Permanent_failure_leaves_the_row_pending_when_the_mark_fails()
+    {
+        await using var store = await NewStoreAsync();
+        await store.InsertAsync(1, eventType: "form.retired");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => RelayTick.RunWithFailingPublisherAsync(
+            new MarkFailedThrowsClaimStore(store.ClaimStore), new OutboxPermanentFailureException("retired")));
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Pending, row.Status);
+        Assert.Equal(0, row.Attempts);
+    }
+
+    [Fact]
+    public async Task Ordinary_failure_reschedules_the_row_behind_its_backoff()
+    {
+        var clock = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        await using var store = new OutboxTestStore(fixture.ConnectionString, clock);
+        await store.CreateTableAsync();
+        await store.InsertAsync(1);
+        var firstBackoff = TimeSpan.FromSeconds(new OutboxOptions().BackoffBaseSeconds);
+
+        await RelayTick.RunWithFailingPublisherAsync(
+            store.ClaimStore, new InvalidOperationException("broker down"), clock);
+
+        var row = await store.GetAsync(1);
+        Assert.Equal(OutboxStatus.Pending, row.Status);
+        Assert.Equal(1, row.Attempts);
+        Assert.NotNull(row.NextAttemptAt);
+        Assert.Empty(await ClaimIdsAsync(store, InstanceB));
+
+        clock.Advance(firstBackoff);
+        Assert.Equal([1L], await ClaimIdsAsync(store, InstanceB));
+    }
+
+    [Fact]
     public async Task Payload_round_trips_through_the_jsonb_text_projection()
     {
         await using var store = await NewStoreAsync();
