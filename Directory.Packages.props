@@ -31,7 +31,7 @@
         <!-- Integration-test-only (real-DB suite via Testcontainers) -->
         <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />
         <PackageVersion Include="Npgsql" Version="10.0.3" />
-        <PackageVersion Include="Testcontainers.MsSql" Version="4.12.0" />
+        <PackageVersion Include="Testcontainers.MsSql" Version="4.16.0" />
         <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.0.2" />
         <!-- NU1903 (GHSA-846f-f764-76mx): lift SqlClient's transitive Pkcs 9.0.13 to the patched 10.0.14 line. -->
         <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
